@@ -10,6 +10,10 @@ U-Boot 不动、不注入任何树外模块。
 
 ## DTB 金标准（本仓核心）
 
+**先说清来源**：飞牛基镜像的 `dtb/rockchip/` 里本来就有 `rk3588-hinlink-h88k.dtb`
+（sha256 `c2162495acd7e90f…`），而且它与厂商实机 iNextOS 里那份**逐字节相同** ——
+也就是飞牛为这块板直接沿用了厂商 DTB（不是主线骨架）。本仓在此底本上做最小改造：
+
 最终 DTB `dist/rk3588-hinlink-h88k.dtb` = **厂商实机 iNextOS 的
 `/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb`（md5 `37193036099ba80b945c792f741afb3e`，
 底本存档在 `refs/`）+ 恰好 8 项改造**（7 项板级 + 1 项 IOMMU 命名对齐主线），
@@ -44,39 +48,42 @@ U-Boot 不动、不注入任何树外模块。
 `phy-mode=rgmii-rxid` 经主线 6.18 `dwmac-rk.c` 源码核实：
 `RGMII_RXID → set_to_rgmii(tx_delay, 0)`，DT 的 `tx_delay=0x44` 生效，与厂商行为一致。
 
-## U-Boot 口径（2026-10-26 修正）
+## U-Boot 口径（2026-10-26 校正版，判据是 DDR 不是 build 号）
 
-- **必须用飞牛官方 RK3588 通用 U-Boot**：`uboot/fnos-rk3588-first32m.bin`
-  （sha256 `44d026b54ce6d8f1…`，32MiB），来源＝fnOS 官方 NanoPC-T6 镜像 `1.2.0701`
-  的前 32MiB（`RKNS@0x8000` + `FIT@0x800000`，**U-Boot 2026.04-TRIM**，
-  `boot_targets=usb mmc1 mmc0 nvme scsi pxe dhcp spi`）。
-- **为什么不再用板上 eMMC 提取件**（原 `h88k-first32m.bin` = `U-Boot 2017.09_armbian`）：
-  实测它在 H88K 上**驱动不了 SD 槽** —— `mmc dev 1` 连续 4 次、等待 13 秒全部失败
-  （TF 里 fnOS 因此永远起不来，只能回落 eMMC）。而飞牛官方 2026.04 那份与 K1 同源、
-  带完整 RK3588 SD 支持；iStoreOS 的镜像能在这块板从 TF 启动也正是因为它带的是现代 U-Boot。
-- 基镜像 v1.1.0 起前导区为零，构建时注入 `[17408, 32MiB)` 载荷区，镜像自身 GPT 保留
-  （产物整盘 dd 也安全）；`verify-image.sh` 硬门禁：RKNS + FIT + 整片 32MiB 逐字节一致 +
-  **版本串必须含 `U-Boot 2026.04-TRIM`**。
-- RK3568 的两个仓（`lyw-kf` / `xck-nas`）同口径，用同一构建的 RK3568 件
-  `fnos-rk3568-first32m.bin`（sha256 `b6c138e16ce6de55…`，ddr-v1.23-03ea844c5d）。
+**判据（KF 口径）：u-boot 必须与【本板 DDR 同源】，断 DDR 版本串，不断 build 号。**
 
-## 启动介质口径（2026-10-26 实测定论，别再踩）
+- 本仓注入 `uboot/h88k-vendor-first32m.bin`（sha256 `f2e48d08f85a3c71…`，32MiB），
+  来源＝厂商 Ubuntu 24.04 `20260524-ubuntu-24.04-desktop-arm64-hinlink-h88k.img`
+  的前 32MiB：`RKNS@0x8000` + `FIT@0x800000`，`U-Boot 2017.09 (May 23 2026)`，
+  **`ddr-v1.18-9fa84341ce`**（与板上 iNextOS 运行时 cmdline 里的 DDR 版本逐字一致），
+  `boot_targets=nvme0 mmc1 mmc0 mtd2 mtd1 mtd0 usb0 pxe dhcp`。
+- ❌ **反面记录（已删）**：曾用 fnOS 官方 NanoPC-T6 镜像里的 `U-Boot 2026.04-TRIM`
+  当"RK3588 通用件"——它只是 **T6 板的** 件，在 H88K 上起不来（eMMC 实测黑屏）。
+  "同 SoC 就能通用"是错的，K1 仓同一条教训：u-boot 不自编、不跨板借用。
+- ⚠ **不要手改 u-boot 里的 `boot_targets`**：改动落在 FIT 负载内，SPL 会按 hash 校验，
+  不重签必然 `sha256 error!`（KF 已用血的代价记为坑 1）。本仓试过 `fit-resign.py`
+  对这份厂商 FIT，5 个 image 节点全报 MISMATCH（工具与该 FIT 结构不兼容）——
+  **所以引导顺序不动，改用介质选择来控制（见下节）。**
+- 注入只写 `[17408, 32MiB)` 载荷区，镜像自身 GPT 前 17408 字节保留；
+  `verify-image.sh` 硬门禁：RKNS + FIT + 整片 32MiB 逐字节一致 + **含 `ddr-v1.18-9fa84341ce`**。
 
-**这块板只能从 eMMC 启动；把同一个镜像刷进 TF 卡是不会引导的。** 实测证据：
+## 启动介质与引导顺序（2026-10-26 实测定论）
 
-- TF 卡内容完全正确（GPT/`RKNS`/`FIT`/p1 三件套逐字节核对，`/fnos-boot.log` 从未生成
-  ⇒ 说明 fnOS 内核一次都没被加载过，不是内核/DTB/rootfs 的问题）。
-- 卡上换成飞牛官方 `2026.04-TRIM` U-Boot 后依然不引导；卡上换 iStoreOS(自带 2025.10 U-Boot)
-  也不引导 → 卡侧 U-Boot 压根没被执行。
-- 把 eMMC 的 IDB 魔数（`0x8000` 的 `RKNS`）清零后，板子**既不从卡启动也不进系统**，
-  直接停在 MASKROM 等 USB ⇒ BootROM 没有"eMMC 失败就落 SD"的兜底顺序。
-- 结论：BootROM 优先 eMMC；eMMC 里的 U-Boot 在 H88K 上初始化不了 SD 槽
-  （`mmc dev 1` 连续 4 次/13 秒全失败），因此 distro-boot 永远落回 eMMC。
-- 历史现象解释：早年"iStoreOS 能从 TF 启动"，前提是那时 eMMC 上没有合法 IDB，
-  BootROM 才落到 SD，而 SD 自己的 U-Boot 是 SPL 刚用过的"热"卡槽。
-
-⇒ 本仓产物的正确用法：**整盘写 eMMC**（`dd` 或 MASKROM + 按地址分段写）。
-TF 卡只当数据盘/备份，不要指望它引导。
+1. **BootROM 只认 eMMC 的 IDB**：把 eMMC 的 `0x8000` 4 字节 `RKNS` 清零后，板子既不进系统、
+   也不落 SD，直接停在 MASKROM 等 USB（实测）→ 别想着"清 IDB 逼它从 SD 起"。
+2. **介质选择发生在 eMMC 里那份 u-boot 的 distro boot**：`boot_targets` 写死在二进制，
+   顺序是 `nvme0 → mmc1(SD) → mmc0(eMMC)` ⇒ **卡在槽里就一定起卡上的系统，eMMC 里的系统
+   一次都不会被尝试**（`/proc/mounts` 里 `/boot` 落在 `mmcblk1p1` 即为实证）。
+   ⇒ 要测 eMMC 上的系统，**那一次卡不能插**；插回卡即回到卡上的系统（安全的退路）。
+3. **写盘后必须把 GPT 备份表搬回盘尾**：镜像 3.86 GiB、eMMC 58.3 GiB，整盘 dd 后主头的
+   `alternate_lba` 仍指向镜像末尾 → u-boot `part_efi.c` 判"分区表损坏" → 一个分区都读不到
+   （内核只警告、照常能读，所以"dd 校验通过但刷完起不来"）。用
+   `tools/fix-gpt-backup.py <盘\|镜像>` 就地修（只动 LBA1 + 盘尾 33 扇区，CRC 重算并回读断言）。
+   iStoreOS/Armbian 是 MBR，无此问题 —— 这就是"刷 iStoreOS 能起、刷飞牛起不来"的根因。
+4. **引导双路径**：p1 同时保留官方 `boot.scr`（`part uuid` 现场取身份）与本仓新写的
+   `extlinux/extlinux.conf`（xck-nas 口径：`kernel /vmlinuz` + `fdt /dtb/rockchip/…` +
+   `root=PARTUUID=…` + `console=ttyS2,1500000` + `earlycon=…feb50000` + `cma=2G`）。
+   任何一条被 u-boot 选中都能起；extlinux 的好处是内核升级后 `/vmlinuz` 符号链接自动跟随。
 
 ## 基镜像
 
@@ -104,8 +111,20 @@ sudo DTB=dist/rk3588-hinlink-h88k.dtb bash tools/verify-image.sh out/*.img
 
 ## 刷写与验收
 
-刷写方式与原厂一致（MASKROM/RKDevTool 或整盘 dd；**前 32MiB 为空属正常**，
-U-Boot 沿用板上现有引导件）。上机验收：
+**写盘三步，缺一不可**：
+
+```bash
+# 1) 整盘写（MASKROM/RKDevTool 分段写，或从另一个系统 dd）
+#    注意：RKDevTool「下载镜像」页对 >2GB 的单文件会 32 位长度溢出 → 按 1.75GiB 分段
+# 2) 把 GPT 备份表搬回盘尾（否则 u-boot 判分区表损坏，刷完起不来）
+sudo python3 tools/fix-gpt-backup.py /dev/mmcblk0
+# 3) 确认引导路径
+sudo mount /dev/mmcblk0p1 /mnt/boot
+cat /mnt/boot/extlinux/extlinux.conf       # extlinux 路径
+cat /mnt/boot/fnEnv.txt                    # 官方 boot.scr 路径
+```
+
+上机验收：
 
 ```bash
 grep -o 'cma=[0-9]*[MG]' /proc/cmdline        # 期望 cma=2G

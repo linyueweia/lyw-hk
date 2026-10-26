@@ -82,6 +82,20 @@ if grep -q '^extraargs=.*cma=256M' "$FNENV"; then
 fi
 
 echo
+echo "── 3.2) extlinux.conf（xck-nas 口径：与官方 boot.scr 成双路径）──"
+EXTL="$TMP/boot/extlinux/extlinux.conf"
+[[ -f "$EXTL" ]] || fail "缺 extlinux/extlinux.conf"
+sed 's/^/     /' "$EXTL"
+grep -q 'kernel /vmlinuz' "$EXTL" || fail "extlinux.conf 缺 kernel /vmlinuz（内核更新后仍有效）"
+grep -q 'fdt /dtb/rockchip/rk3588-hinlink-h88k.dtb' "$EXTL" || fail "extlinux.conf fdt 行不符"
+grep -q 'root=PARTUUID=' "$EXTL" || fail "extlinux.conf root 未用 PARTUUID（换盘/换槽会串根）"
+grep -q 'ubootpart=PARTUUID=' "$EXTL" || fail "extlinux.conf 缺 ubootpart=PARTUUID="
+grep -q 'console=ttyS2,1500000' "$EXTL" || fail "extlinux.conf 缺 console=ttyS2,1500000"
+grep -q 'earlycon=uart8250,mmio32,0xfeb50000' "$EXTL" || fail "extlinux.conf earlycon 不是 RK3588 的 0xfeb50000"
+grep -q 'cma=2G' "$EXTL" || fail "extlinux.conf 缺 cma=2G"
+ok "extlinux.conf 七项断言通过（kernel/fdt/PARTUUID×2/console/earlycon/cma）"
+
+echo
 echo "── 3.5) 前导区 U-Boot（注入件或清零，二选一必须成立）──"
 python3 - "$IMG" "${UBOOT:-}" <<'PY'
 import sys, hashlib, struct, os

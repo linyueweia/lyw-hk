@@ -90,11 +90,11 @@ d = open(img,'rb').read(32*1024*1024)   # 必须读满 32MiB：U-Boot 版本串�
 u = open(ub,'rb').read()
 assert d[0x8000:0x8004] == b'RKNS', "idbloader 魔数不对"
 assert d[0x800000:0x800004] == bytes.fromhex('d00dfeed'), "FIT 魔数不对"
-# 2026-10-26：u-boot 必须是【飞牛官方 RK3588 通用件】（源：fnOS 官方 NanoPC-T6 镜像 1.2.0701
-# 的前 32MiB，U-Boot 2026.04-TRIM）。板上 eMMC 那份 2017.09 armbian 驱动不了 H88K 的 SD 槽，
-# 用它做 TF 引导时 u-boot 在 mmc dev 1 上必失败（实测 d1none），因此这里硬门禁版本串。
-assert b'U-Boot 2026.04-TRIM' in d, "注入的 u-boot 不是飞牛 RK3588 通用件（缺 U-Boot 2026.04-TRIM）"
-assert b'boot_targets=usb mmc1 mmc0' in d, "u-boot 的 boot_targets 不含 mmc1(SD)"
+# 2026-10-26 校正：u-boot 必须与【本板 DDR 同源】——判据是 DDR 版本串，不是 build 号（KF 口径）。
+# 实测：NanoPC-T6 的 2026.04-TRIM 件在 H88K 上起不来；厂商 Ubuntu 24.04(2026-05) 件
+# ddr-v1.18-9fa84341ce 与本板 eMMC/iNextOS 同源，boot_targets=nvme0 mmc1 mmc0。
+assert b'ddr-v1.18-9fa84341ce' in d, "注入的 u-boot 不是本板 DDR 同源件（缺 ddr-v1.18-9fa84341ce）"
+assert b'boot_targets=' in d and b'mmc0' in d and b'mmc1' in d, "u-boot 的 boot_targets 异常（缺 mmc0/mmc1）"
 assert d[512:520] == b'EFI PART', "镜像 GPT 头丢失"
 assert hashlib.sha256(d[17408:]).hexdigest() == hashlib.sha256(u[17408:]).hexdigest(), "整片 [17408,32MiB) 载荷与提取件不一致"
 # p1 起始 LBA 必须仍是 65536（32MiB）
@@ -153,6 +153,21 @@ echo "  ── 新 fnEnv.txt ──"
 sed 's/^/     /' "$BOOT_MNT/fnEnv.txt"
 grep -q "^fdtfile=rockchip/$DTB_NAME$" "$BOOT_MNT/fnEnv.txt" || fail "fnEnv fdtfile 写入失败"
 grep -q '^extraargs=cma=2G$' "$BOOT_MNT/fnEnv.txt" || fail "fnEnv extraargs 写入失败"
+
+echo
+echo "==== 3.5) extlinux.conf（xck-nas 口径：extlinux 直起内核，与官方 boot.scr 成双路径）===="
+BOOT_PARTUUID="$(lsblk -no PARTUUID "$BOOT_PART" | tr -d ' ')"
+[[ -n "$BOOT_PARTUUID" && -n "$ROOT_PARTUUID" ]] || fail "拿不到 BOOT/rootfs 的 PARTUUID"
+mkdir -p "$BOOT_MNT/extlinux"
+cat > "$BOOT_MNT/extlinux/extlinux.conf" <<EXTLINUX
+label fnOS
+    kernel /vmlinuz
+    fdt /dtb/rockchip/$DTB_NAME
+    append earlycon=uart8250,mmio32,0xfeb50000 console=ttyS2,1500000 console=tty1 splash=verbose cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory cma=2G ubootpart=PARTUUID=${BOOT_PARTUUID} root=PARTUUID=${ROOT_PARTUUID} rw rootwait
+EXTLINUX
+grep -q "root=PARTUUID=${ROOT_PARTUUID}" "$BOOT_MNT/extlinux/extlinux.conf" || fail "extlinux.conf root 写入失败"
+grep -q "fdt /dtb/rockchip/$DTB_NAME" "$BOOT_MNT/extlinux/extlinux.conf" || fail "extlinux.conf fdt 写入失败"
+sed 's/^/     /' "$BOOT_MNT/extlinux/extlinux.conf"
 # K1 教训：extlinux.conf 会被 u-boot 优先拾取导致静态 root= 串盘 → 一律停用
 if [[ -f "$BOOT_MNT/extlinux/extlinux.conf" ]]; then
     mv -f "$BOOT_MNT/extlinux/extlinux.conf" "$BOOT_MNT/extlinux/extlinux.conf.h88k-off"
