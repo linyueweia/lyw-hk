@@ -101,6 +101,19 @@ print("  ✓ memory 与数据源一致：%d banks / %.3f GiB（%s）" % (
 PY
     ok "memory 节点存在且与数据源一致（容量不写死）"
 
+    # 多媒体：GPU/VOP/HDMI 必须启用（官方 T6 DTB 同为 okay；关掉会无 /dev/dri、HDMI 全黑、vdd_gpu 断电）
+    for n in /gpu@fb000000 /vop@fdd90000 /hdmi@fde80000; do
+        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
+        [[ "$st" == "okay" ]] || fail "$n 应为 okay（官方 T6 是 okay；实际 '${st:-缺失}'）"
+    done
+    ok "GPU(gpu@fb000000) + VOP(vop@fdd90000) + HDMI(hdmi@fde80000) 均 okay"
+    # 编解码核与官方一致：vpu121 ×1 + vepu121 ×4 + av1 ×1
+    N_VDEC="$(grep -o 'rockchip,rk3588-vpu121' "$TMP" | wc -l | tr -d ' ')"
+    N_VENC="$(grep -o 'rockchip,rk3588-vepu121' "$TMP" | wc -l | tr -d ' ')"
+    [[ "${N_VDEC:-0}" -ge 1 ]] || fail "缺 rk3588-vpu121 解码核"
+    [[ "${N_VENC:-0}" -ge 4 ]] || fail "缺 rk3588-vepu121 编码核（应 ≥4）"
+    ok "编解码核：vpu121 ×${N_VDEC} / vepu121 ×${N_VENC}（与官方 T6 配置一致）"
+
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
     # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
     # 所以按"字符串出现次数"计数，不绑定属性行格式（踩过：带前缀的 grep 会假 0）

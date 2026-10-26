@@ -515,6 +515,27 @@
 	status = "okay";
 };
 
+/*
+ * GPU / 显示（对齐官方 T6 官方 DTB：gpu=okay、vop=okay、hdmi0=okay）
+ * 不开 gpu 时 vdd_gpu_s0 会被断电、而且 DRM 报 "No available vop found" → 无 /dev/dri、HDMI 全黑
+ */
+&gpu {
+	mali-supply = <&vdd_gpu_s0>;
+	status = "okay";
+};
+
+&vop {
+	status = "okay";
+};
+
+&vop_mmu {
+	status = "okay";
+};
+
+&hdmi0 {
+	status = "okay";
+};
+
 &pcie30phy {
 	status = "okay";
 };
