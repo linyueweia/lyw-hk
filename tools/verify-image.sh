@@ -11,6 +11,8 @@
 # 2017.09 —— 结果必然永远失败）。
 #==========================================================================
 set -euo pipefail
+# ERR trap：set -e 静默退出时至少告诉我们死在哪一行（踩过：grep 无匹配 + pipefail → 无声 exit 1）
+trap 'echo "  ✗ 命令失败退出 @行 $LINENO（set -e / pipefail）" >&2' ERR
 
 IMG="${1:?用法: verify-image.sh <镜像.img>}"
 DTB="${DTB:-dist/rk3588-hlink-h88k.dtb}"
@@ -54,7 +56,7 @@ if [[ -f "$DTB" ]]; then
 fi
 MODEL="$(fdtget -t s "$F" / model)"
 [[ "$MODEL" == *H88K* ]] && ok "model = $MODEL" || fail "model 不符: $MODEL"
-fdtget -t s "$F" / compatible | grep -qi h88k && ok "compatible 含 h88k" || fail "compatible 不含 h88k"
+if fdtget -t s "$F" / compatible | grep -qi h88k; then ok "compatible 含 h88k"; else fail "compatible 不含 h88k"; fi
 
 echo
 echo "── 3) 内存节点（与官方 T6 一致：DTB 不写，u-boot 注入）──"
@@ -65,9 +67,9 @@ else
 fi
 
 echo "── 4) DTB 关键属性 ──"
-dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null
-N_IOMMU="$(grep -o 'rockchip,rk3588-iommu' "$TMP/in.dts" | wc -l | tr -d ' ')"
-N_V2="$(grep -o 'rockchip,iommu-v2' "$TMP/in.dts" | wc -l | tr -d ' ')"
+dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null || true
+N_IOMMU="$( { grep -o 'rockchip,rk3588-iommu' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
+N_V2="$( { grep -o 'rockchip,iommu-v2' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 [[ "${N_IOMMU:-0}" -ge 10 ]] && ok "iommu = rockchip,rk3588-iommu ×$N_IOMMU" || fail "iommu 不是官方内核认的命名（仅 ${N_IOMMU:-0}）"
 [[ "${N_V2:-0}" -eq 0 ]] && ok "无 rockchip,iommu-v2 残留" || fail "仍有 rockchip,iommu-v2 ×${N_V2}"
 LBL="$(fdtget -t s "$F" /ethernet@fe1b0000 label 2>/dev/null || true)"
@@ -79,7 +81,7 @@ for e in "net blue:net" "sata amber:sata" "user green:user" "work red:work"; do
     [[ "$(fdtget -t s "$F" "/leds/$1" label)" == "$2" ]] || fail "LED $1 应为 $2"
 done
 ok "LED 四灯 = blue:net / amber:sata / green:user / red:work"
-grep -q 'rockchip,system-power-controller' "$TMP/in.dts" && ok "PMIC 带 system-power-controller" || fail "PMIC 缺断电属性"
+if grep -q 'rockchip,system-power-controller' "$TMP/in.dts"; then ok "PMIC 带 system-power-controller"; else fail "PMIC 缺断电属性"; fi
 
 echo
 echo "── 5) PCIe / PHY（NVMe + 双 2.5G 前提）──"
@@ -102,8 +104,8 @@ for n in /npu@fdab0000 /npu@fdac0000 /npu@fdad0000 /video-codec@fdc38000 /video-
     [[ "$(fdtget -t s "$F" "$n" status)" == "disabled" ]] || fail "$n 应 disabled（T6 亦然）"
 done
 ok "NPU 与多余 vdec/rga 均 disabled（与 T6 一致）"
-NV="$(grep -o 'rockchip,rk3588-vpu121' "$TMP/in.dts" | wc -l | tr -d ' ')"
-NE="$(grep -o 'rockchip,rk3588-vepu121' "$TMP/in.dts" | wc -l | tr -d ' ')"
+NV="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
+NE="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 [[ "${NV:-0}" -ge 1 ]] && [[ "${NE:-0}" -ge 4 ]] && ok "编解码核 vpu121 ×$NV / vepu121 ×$NE" || fail "编解码核数量异常"
 
 echo
@@ -120,7 +122,7 @@ KER="$(grep '^kernelfile=' "$FN" | cut -d= -f2)"
 echo
 echo "── 8) 引导链（只允许官方那一条）──"
 [[ -f "$TMP/boot/boot.scr" ]] && ok "boot.scr 在位（官方引导脚本）" || fail "缺 boot.scr"
-grep -qa 'fnEnv' "$TMP/boot/boot.scr" && ok "boot.scr 内部读 fnEnv（官方机制）" || fail "boot.scr 不像官方脚本（未引用 fnEnv）"
+if grep -qa 'fnEnv' "$TMP/boot/boot.scr"; then ok "boot.scr 内部读 fnEnv（官方机制）"; else fail "boot.scr 不像官方脚本（未引用 fnEnv）"; fi
 [[ -e "$TMP/boot/extlinux" ]] && fail "不应存在 extlinux/（会抢在官方脚本前）" || ok "无 extlinux/"
 ls "$TMP/boot"/uInitrd* >/dev/null 2>&1 && fail "不应存在 uInitrd（官方无 initrd）" || ok "无 uInitrd"
 

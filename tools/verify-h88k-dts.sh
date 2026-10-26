@@ -15,6 +15,8 @@
 #     rockchip,rk3588-iommu（iommu-v2 在官方内核里 0 处）
 #==========================================================================
 set -euo pipefail
+# ERR trap：set -e 静默退出时至少告诉我们死在哪一行（踩过：grep 无匹配 + pipefail → 无声 exit 1）
+trap 'echo "  ✗ 命令失败退出 @行 $LINENO（set -e / pipefail）" >&2' ERR
 fail() { echo "✗ $*" >&2; exit 1; }
 ok()   { echo "  ✓ $*"; }
 
@@ -110,8 +112,8 @@ for DTB in "${DTBS[@]}"; do
     done
     ok "多媒体与官方 T6 逐节点一致（NPU/多余 vdec/rga 均 disabled）"
     # 编解码核与官方一致：vpu121 ×1 + vepu121 ×4 + av1 ×1
-    N_VDEC="$(grep -o 'rockchip,rk3588-vpu121' "$TMP" | wc -l | tr -d ' ')"
-    N_VENC="$(grep -o 'rockchip,rk3588-vepu121' "$TMP" | wc -l | tr -d ' ')"
+    N_VDEC="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP" || true; } | wc -l | tr -d ' ')"
+    N_VENC="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP" || true; } | wc -l | tr -d ' ')"
     [[ "${N_VDEC:-0}" -ge 1 ]] || fail "缺 rk3588-vpu121 解码核"
     [[ "${N_VENC:-0}" -ge 4 ]] || fail "缺 rk3588-vepu121 编码核（应 ≥4）"
     ok "编解码核：vpu121 ×${N_VDEC} / vepu121 ×${N_VENC}（与官方 T6 配置一致）"
