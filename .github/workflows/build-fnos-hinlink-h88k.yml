@@ -4,8 +4,9 @@
 # 方案 = lyw-kf（KICKPI K1）同款，按 H88K 裁剪：
 #   · 不注入 u-boot（H88K 现有厂商 u-boot 走 distro boot，用户口径：U-Boot 不动）
 #   · 不注入树外模块（基镜像内核 6.18.18.c951-trim 已带 STMMAC/R8169/REALTEK_PHY/NVME）
-#   · 三件事：注入厂商金标准 DTB、fnEnv（fdtfile + cma=2G）、board.json
-#   · DTB 门禁（dtc 编译 + 金标准断言 + 与厂商实机底本差异面受控）作为硬门禁
+#   · 三件事：就地适配官方 DTB（tools/adapt-official-dtb.py）、fnEnv（fdtfile + cma=2G）、
+#     extlinux.conf（xck-nas 口径双路径）、board.json
+#   · 硬门禁：u-boot DDR 同源 + 整片 32MiB 逐字节 + DTB iommu 适配 ×21/无 v2 + extlinux 七项
 #   · 镜像自证不过就不出产物
 #==========================================================================
 name: Build fnOS HINLINK H88K Image
@@ -151,8 +152,10 @@ jobs:
             - U-Boot：飞牛官方 RK3588 通用件（U-Boot 2026.04-TRIM，RKNS@0x8000 + FIT@0x800000，
               boot_targets 含 mmc1/SD），注入 [17408,32MiB)；板上原 2017.09_armbian 件已弃用
               （在 H88K 上 mmc dev 1 初始化必失败）。
-            - DTB：厂商实机 iNextOS 金标准底本 + 8 项改造（删 cma 固定区 / 加 PMIC 断电属性 /
-              rockchip,iommu-v2 → rockchip,rk3588-iommu 21 处对齐主线 6.18）。
+            - DTB：用基镜像自带的官方 rk3588-hinlink-h88k.dtb 就地适配 ——
+              只改官方内核不认的兼容串（rockchip,iommu-v2 ×21 → rockchip,rk3588-iommu；
+              依据：官方内核 of_match 里 iommu-v2 = 0、rk3588-iommu = 2），
+              并给 PMIC rk806 补 rockchip,system-power-controller（poweroff 真断电）。
             - CMA=2G（fnEnv extraargs），DTB 门禁 + 镜像自证（整片 32MiB 逐字节）均通过。
 
             ⚠ 启动介质：**本板只能从 eMMC 启动**。刷进 TF 卡不会引导（BootROM 优先 eMMC，
