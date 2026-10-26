@@ -78,15 +78,28 @@ for DTB in "${DTBS[@]}"; do
     [[ "${CNT_REG:-0}" -ge 8 ]] || fail "PMIC 稳压器数量异常（regulator-name 仅 ${CNT_REG:-0} 个）"
     ok "PMIC rk806 + 断电属性 + $CNT_REG 路稳压器"
 
-    # 内存节点：vendor dtsi 不带 /memory，缺了内核拿到 0 字节 RAM，booti 后静默死亡
-    MEMNODE="/memory@200000"
-    [[ "$(fdtget -t s "$DTB" "$MEMNODE" device_type 2>/dev/null)" == "memory" ]] \
-        || fail "DTB 缺 /memory 节点（device_type=memory）—— 内核会拿到 0 字节 RAM，booti 后静默死亡、无任何输出"
-    MEMREG="$(fdtget -t x "$DTB" "$MEMNODE" reg 2>/dev/null | tr -s ' ')"
-    for want in efe00000 10000000; do
-        grep -q "$want" <<<"$MEMREG" || fail "内存 reg 缺 0x${want}（实板 8GB：0x200000+0xefe00000 / 0x1_00000000+0x1_00000000 / 0x2_f0000000+0x10000000）"
-    done
-    ok "memory 节点存在且为 8GB 三 bank 布局"
+    # 内存节点必须存在，且与数据源 dts/memory-banks.json 完全一致（不写死容量）
+    python3 - "$DTB" <<'PY'
+import json, subprocess, sys
+dtb = sys.argv[1]
+d = json.load(open("dts/memory-banks.json", encoding="utf-8"))
+banks = sorted(d["banks"], key=lambda x: x["base"])
+node = "/memory@%x" % banks[0]["base"]
+dt = subprocess.run(["fdtget", "-t", "s", dtb, node, "device_type"], capture_output=True, text=True)
+if dt.stdout.strip() != "memory":
+    sys.exit("✗ DTB 缺 %s（device_type=memory）—— 内核会拿到 0 字节 RAM，booti 后静默死亡" % node)
+r = subprocess.run(["fdtget", "-t", "x", dtb, node, "reg"], capture_output=True, text=True)
+got = [int(x, 16) for x in r.stdout.split()]
+want = []
+for b in banks:
+    for v in (b["base"], b["size"]):
+        want += [(v >> 32) & 0xFFFFFFFF, v & 0xFFFFFFFF]
+if got != want:
+    sys.exit("✗ memory reg 与 dts/memory-banks.json 不一致\n  DTB : %s\n  JSON: %s" % (got, want))
+print("  ✓ memory 与数据源一致：%d banks / %.3f GiB（%s）" % (
+    len(banks), sum(b["size"] for b in banks) / 1024.0**3, node))
+PY
+    ok "memory 节点存在且与数据源一致（容量不写死）"
 
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
     # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
