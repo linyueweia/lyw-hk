@@ -76,9 +76,19 @@ LBL="$(fdtget -t s "$F" /ethernet@fe1b0000 label 2>/dev/null || true)"
 [[ -z "$LBL" ]] && ok "gmac 无 label（否则 stmmac 撞名 -17，千兆口消失）" || fail "gmac 带 label='$LBL'"
 [[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] && ok "gmac phy-mode=rgmii-rxid" || fail "gmac phy-mode 不符"
 [[ "$(fdtget -t i "$F" /ethernet@fe1b0000 tx_delay)" == "68" ]] && ok "gmac tx_delay=0x44" || fail "gmac tx_delay 不符"
+# 节点名是 gpio-leds（板级 dtsi 里 gpio_leds: gpio-leds），兼容旧版的 /leds
+led_label() {
+    local n="$1" v=""
+    for base in /gpio-leds /leds; do
+        v="$(fdtget -t s "$F" "$base/$n" label 2>/dev/null || true)"
+        [[ -n "$v" ]] && { echo "$v"; return; }
+    done
+    echo ""
+}
 for e in "net blue:net" "sata amber:sata" "user green:user" "work red:work"; do
     set -- $e
-    [[ "$(fdtget -t s "$F" "/leds/$1" label)" == "$2" ]] || fail "LED $1 应为 $2"
+    got="$(led_label "$1")"
+    [[ "$got" == "$2" ]] || fail "LED $1 应为 $2（实际 '$got'；查了 /gpio-leds 与 /leds）"
 done
 ok "LED 四灯 = blue:net / amber:sata / green:user / red:work"
 if grep -q 'rockchip,system-power-controller' "$TMP/in.dts"; then ok "PMIC 带 system-power-controller"; else fail "PMIC 缺断电属性"; fi
