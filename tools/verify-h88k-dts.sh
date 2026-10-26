@@ -78,6 +78,16 @@ for DTB in "${DTBS[@]}"; do
     [[ "${CNT_REG:-0}" -ge 8 ]] || fail "PMIC 稳压器数量异常（regulator-name 仅 ${CNT_REG:-0} 个）"
     ok "PMIC rk806 + 断电属性 + $CNT_REG 路稳压器"
 
+    # 内存节点：vendor dtsi 不带 /memory，缺了内核拿到 0 字节 RAM，booti 后静默死亡
+    MEMNODE="/memory@200000"
+    [[ "$(fdtget -t s "$DTB" "$MEMNODE" device_type 2>/dev/null)" == "memory" ]] \
+        || fail "DTB 缺 /memory 节点（device_type=memory）—— 内核会拿到 0 字节 RAM，booti 后静默死亡、无任何输出"
+    MEMREG="$(fdtget -t x "$DTB" "$MEMNODE" reg 2>/dev/null | tr -s ' ')"
+    for want in efe00000 10000000; do
+        grep -q "$want" <<<"$MEMREG" || fail "内存 reg 缺 0x${want}（实板 8GB：0x200000+0xefe00000 / 0x1_00000000+0x1_00000000 / 0x2_f0000000+0x10000000）"
+    done
+    ok "memory 节点存在且为 8GB 三 bank 布局"
+
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
     # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
     # 所以按"字符串出现次数"计数，不绑定属性行格式（踩过：带前缀的 grep 会假 0）

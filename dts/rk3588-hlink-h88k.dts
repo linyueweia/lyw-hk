@@ -9,6 +9,18 @@
 	model = "Hlink H88K";
 	compatible = "hlink,h88k", "rockchip,rk3588";
 
+	/*
+	 * 内存布局必须写全：vendor dtsi 不带 /memory，缺了它内核拿到 0 字节 RAM，
+	 * booti 之后立刻死且串口/HDMI 全无输出（实测踩过，只有 u-boot 打点能看出来）。
+	 * 数值取自本板在跑的 iStoreOS 内核 /proc/device-tree/memory/reg（8GB 板）。
+	 */
+	memory@200000 {
+		device_type = "memory";
+		reg = <0x0 0x00200000 0x0 0xefe00000>,
+		      <0x1 0x00000000 0x1 0x00000000>,
+		      <0x2 0xf0000000 0x0 0x10000000>;
+	};
+
 	vcc3v3_m2_sata: vcc3v3-m2-sata {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc3v3_m2_sata";
