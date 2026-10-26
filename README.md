@@ -38,6 +38,17 @@ U-Boot 不动、不注入任何树外模块。
 `phy-mode=rgmii-rxid` 经主线 6.18 `dwmac-rk.c` 源码核实：
 `RGMII_RXID → set_to_rgmii(tx_delay, 0)`，DT 的 `tx_delay=0x44` 生效，与厂商行为一致。
 
+## U-Boot 口径（2026-10-26 定）
+
+- 基镜像 **v1.1.0 起前导区（0~32MiB）为零**：3568/3588 无法共用一份 U-Boot（实测：v1.0.0 内嵌
+  RK3568 版 ddr-v1.23，整盘刷到 H88K 会砖），飞牛官方也是每板一份，业界同款做法见 ophub/u-boot
+  （按板存库、构建时注入）。
+- 本仓构建传 `UBOOT=uboot/h88k-first32m.bin`（**H88K 实机 eMMC 前 32MiB 只读提取**，
+  sha256 `53049942…`，RKNS@0x8000 + FIT@0x800000 + ddr-v1.18，板上实测能跑的那份），
+  注入只写 `[17408, 32MiB)` 载荷区，镜像自身 GPT 保留 —— 产物整盘 dd 也安全。
+- 刷写不碰板上现有 U-Boot 的场景（分区刷/dd skip）可不注入，`verify-image.sh` 会按
+  "注入 或 前导区全零"二选一断言。
+
 ## 基镜像
 
 `linyueweia/fnnas-base-images` release `v1.0.0` 的
@@ -58,7 +69,7 @@ PCIE_ROCKCHIP=y / BLK_DEV_NVME=y / MFD_RK8XX_SPI=y / DW_WATCHDOG=y`。
 
 # 本地（Linux）:
 bash tools/verify-dtb.sh                       # DTB 门禁
-sudo BASE=fnnas-base.img DTB=dist/rk3588-hinlink-h88k.dtb bash build-h88k-fnos.sh
+sudo BASE=fnnas-base.img DTB=dist/rk3588-hinlink-h88k.dtb UBOOT=uboot/h88k-first32m.bin bash build-h88k-fnos.sh
 sudo DTB=dist/rk3588-hinlink-h88k.dtb bash tools/verify-image.sh out/*.img
 ```
 

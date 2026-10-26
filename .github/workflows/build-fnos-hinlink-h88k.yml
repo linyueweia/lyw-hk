@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       base_image_tag:
-        description: "fnnas-base-images 的 release tag（基镜像来源）"
+        description: "基镜像 release tag；latest=自适应最新正式版（推荐）"
         required: false
-        default: "v1.0.0"
+        default: "latest"
         type: string
       base_image_asset:
         description: "基镜像资产名"
@@ -26,9 +26,8 @@ on:
       base_image_sha256:
         description: "基镜像(解压后) sha256；留空跳过断言"
         required: false
-        # run 40265755055 (fnos_hinlink-h88k_3) CI 实测解压值，
-        # 与本地取证件逐字节一致（d0f4d40b…，同 lyw-kf 记载的那份）
-        default: "d0f4d40ba82966720d6cbc39f22100192c50b9a7a4a4ba219ff5eceada61a216"
+        # v1.1.0 的 CI 实测解压 sha256 —— 首次发布后回填，回填前留空跳过断言
+        default: ""
         type: string
   push:
     branches: [main]
@@ -75,47 +74,48 @@ jobs:
           chmod +x tools/verify-dtb.sh
           bash tools/verify-dtb.sh
 
-      - name: Cache fnOS base image
-        id: basecache
-        uses: actions/cache@v4
-        with:
-          path: base
-          key: fnnas-base-${{ inputs.base_image_tag || 'v1.0.0' }}-${{ inputs.base_image_asset || 'fnnas-official-arm64-image_rockchip.img.gz' }}
-
       - name: Fetch and unpack fnOS base image
         run: |
           set -e
-          TAG="${{ inputs.base_image_tag || 'v1.0.0' }}"
-          ASSET="${{ inputs.base_image_asset || 'fnnas-official-arm64-image_rockchip.img.gz' }}"
+          REPO="linyueweia/fnnas-base-images"
+          TAG="${{ inputs.base_image_tag || 'latest' }}"
+          ASSET="fnnas-official-arm64-image_rockchip.img.gz"
+          if [[ "$TAG" == "latest" ]]; then
+            # 自适应：取最新正式基镜像 release（排除 src-* 源档 / draft / prerelease）
+            TAG="$(curl -sf https://api.github.com/repos/$REPO/releases \
+              | jq -r '[.[] | select((.draft|not) and (.prerelease|not) and ((.tag_name|startswith("src-"))|not))][0].tag_name')"
+            [[ -n "$TAG" && "$TAG" != "null" ]] || { echo "::error::拿不到 $REPO 的最新基镜像 tag"; exit 1; }
+          fi
+          echo "基镜像 tag = $TAG（手动指定或 latest 自适应）"
           mkdir -p base
-          if [[ ! -f base/fnnas-base.img ]]; then
-            URL="https://github.com/linyueweia/fnnas-base-images/releases/download/${TAG}/${ASSET}"
-            echo "  下载基镜像: $URL"
-            curl -fL --retry 3 -o base/base.img.gz "$URL"
-            gzip -t base/base.img.gz
-            gunzip -c base/base.img.gz > base/fnnas-base.img
-            rm -f base/base.img.gz
-          fi
+          URL="https://github.com/$REPO/releases/download/${TAG}/${ASSET}"
+          echo "  下载: $URL"
+          curl -fL --retry 3 -o "base/$ASSET" "$URL"
+          gzip -t "base/$ASSET"
+          # 完整性双校验：release 随附 SHA256SUMS（gz + 解压后 raw 各一道）
+          curl -fL --retry 3 -o base/SHA256SUMS "https://github.com/$REPO/releases/download/${TAG}/SHA256SUMS"
+          grep " ${ASSET}$" base/SHA256SUMS | (cd base && sha256sum -c -)
+          echo "  ✓ gz 校验通过（$TAG）"
+          # 可选覆盖：显式给了 base_image_sha256 就再断言 raw（换版时用于钉死）
           EXPECT_SHA="${{ inputs.base_image_sha256 || '' }}"
-          if [[ -n "$EXPECT_SHA" ]]; then
-            GOT="$(sha256sum base/fnnas-base.img | awk '{print $1}')"
-            if [[ "$GOT" == "$EXPECT_SHA" ]]; then
-              echo "  ✓ 基镜像 sha256 一致 $GOT"
-            else
-              echo "  ✗ 基镜像 sha256 不符：期望 $EXPECT_SHA 实得 $GOT"
-              exit 1
-            fi
-          else
-            echo "  （未设 base_image_sha256，跳过断言；CI 实测值: $(sha256sum base/fnnas-base.img | awk '{print $1}')）"
+          gunzip -c "base/$ASSET" > base/fnnas-base.img
+          rm -f "base/$ASSET"
+          RAW_GOT="$(sha256sum base/fnnas-base.img | awk '{print $1}')"
+          RAW_LINE="$(grep ' fnnas-official-arm64-image_rockchip.img$' base/SHA256SUMS || true)"
+          if [[ -n "$RAW_LINE" ]]; then
+            echo "$RAW_LINE" | (cd base && sha256sum -c -) || { echo "::error::raw 与 SHA256SUMS 不符"; exit 1; }
+            echo "  ✓ raw 校验通过 $RAW_GOT"
           fi
-          ls -la base/
+          if [[ -n "$EXPECT_SHA" && "$RAW_GOT" != "$EXPECT_SHA" ]]; then
+            echo "::error::raw sha256 与显式输入不符：期望 $EXPECT_SHA 实得 $RAW_GOT"; exit 1
+          fi
           sudo parted -s base/fnnas-base.img unit s print || true
-
       - name: Assemble fnOS image
         run: |
           set -e
           sudo -E BASE=base/fnnas-base.img \
                   DTB=dist/rk3588-hinlink-h88k.dtb \
+                  UBOOT=uboot/h88k-first32m.bin \
                   BUILD_NUM="${{ github.run_number }}" \
                   OUT_DIR=out \
                   bash build-h88k-fnos.sh
@@ -125,7 +125,7 @@ jobs:
         run: |
           set -e
           IMG="$(ls out/*.img | head -1)"
-          sudo -E DTB=dist/rk3588-hinlink-h88k.dtb bash tools/verify-image.sh "$IMG"
+          sudo -E DTB=dist/rk3588-hinlink-h88k.dtb UBOOT=uboot/h88k-first32m.bin bash tools/verify-image.sh "$IMG"
 
       - name: Show outputs
         run: |

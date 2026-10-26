@@ -68,6 +68,38 @@ trap cleanup EXIT
 
 echo
 echo "==== 1) 挂载镜像分区 ===="
+# ── U-Boot 注入（本板引导件，前导区清零基镜像的配套机制）──────────────
+# 基镜像 v1.1.0 起前导区为零（3568/3588 无法共用一份 U-Boot，业界同款做法见
+# ophub/u-boot：按板存库、构建时注入）。注入规则：只写 [17408, 32MiB) 载荷区
+# （RKNS idbloader @0x8000 + FIT u-boot.itb @0x800000），镜像自身 GPT 前 17408
+# 字节（LBA0~33）保留 —— 两者的 GPT 分区布局不同，绝不能覆盖。
+if [[ -n "${UBOOT:-}" ]]; then
+    [[ -f "$UBOOT" ]] || fail "UBOOT 文件不存在: $UBOOT"
+    UBSZ="$(stat -c%s "$UBOOT")"
+    [[ "$UBSZ" -eq 33554432 ]] || fail "UBOOT 必须是 32MiB 提取件，实际 $UBSZ"
+    dd if="$UBOOT" of="$IMG" bs=1 skip=17408 seek=17408 conv=notrunc status=none
+    # 断言：载荷魔数 + GPT 仍是镜像自己的
+    python3 - "$IMG" "$UBOOT" <<'PYEOF'
+import sys, hashlib, struct
+img, ub = sys.argv[1], sys.argv[2]
+d = open(img,'rb').read(0x800000+16)
+u = open(ub,'rb').read()
+assert d[0x8000:0x8004] == b'RKNS', "idbloader 魔数不对"
+assert d[0x800000:0x800004] == bytes.fromhex('d00dfeed'), "FIT 魔数不对"
+assert d[512:520] == b'EFI PART', "镜像 GPT 头丢失"
+assert hashlib.sha256(d[17408:0x800000+16]).hexdigest() == hashlib.sha256(u[17408:0x800000+16]).hexdigest(), "载荷与提取件不一致"
+# p1 起始 LBA 必须仍是 65536（32MiB）
+f = open(img,'rb'); f.seek(512); h = f.read(92)
+pl, = struct.unpack('<Q', h[72:80])
+f.seek(pl*512); e = f.read(128)
+s, = struct.unpack('<Q', e[32:40])
+assert s == 65536, f"p1 起始 LBA 变了: {s}"
+print("  ✓ U-Boot 注入断言通过（RKNS + FIT + GPT 保留 + p1@65536）")
+PYEOF
+    echo "  ✓ 已注入本板 U-Boot（载荷区 [17408,32MiB)，来自 $UBOOT）"
+else
+    echo "  （未传 UBOOT —— 前导区保持基镜像原样）"
+fi
 LOOP="$(losetup -fP --show "$IMG")"
 sleep 1
 BOOT_PART="${LOOP}p1"; ROOT_PART="${LOOP}p2"
