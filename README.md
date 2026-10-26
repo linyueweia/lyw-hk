@@ -60,6 +60,24 @@ U-Boot 不动、不注入任何树外模块。
 - RK3568 的两个仓（`lyw-kf` / `xck-nas`）同口径，用同一构建的 RK3568 件
   `fnos-rk3568-first32m.bin`（sha256 `b6c138e16ce6de55…`，ddr-v1.23-03ea844c5d）。
 
+## 启动介质口径（2026-10-26 实测定论，别再踩）
+
+**这块板只能从 eMMC 启动；把同一个镜像刷进 TF 卡是不会引导的。** 实测证据：
+
+- TF 卡内容完全正确（GPT/`RKNS`/`FIT`/p1 三件套逐字节核对，`/fnos-boot.log` 从未生成
+  ⇒ 说明 fnOS 内核一次都没被加载过，不是内核/DTB/rootfs 的问题）。
+- 卡上换成飞牛官方 `2026.04-TRIM` U-Boot 后依然不引导；卡上换 iStoreOS(自带 2025.10 U-Boot)
+  也不引导 → 卡侧 U-Boot 压根没被执行。
+- 把 eMMC 的 IDB 魔数（`0x8000` 的 `RKNS`）清零后，板子**既不从卡启动也不进系统**，
+  直接停在 MASKROM 等 USB ⇒ BootROM 没有"eMMC 失败就落 SD"的兜底顺序。
+- 结论：BootROM 优先 eMMC；eMMC 里的 U-Boot 在 H88K 上初始化不了 SD 槽
+  （`mmc dev 1` 连续 4 次/13 秒全失败），因此 distro-boot 永远落回 eMMC。
+- 历史现象解释：早年"iStoreOS 能从 TF 启动"，前提是那时 eMMC 上没有合法 IDB，
+  BootROM 才落到 SD，而 SD 自己的 U-Boot 是 SPL 刚用过的"热"卡槽。
+
+⇒ 本仓产物的正确用法：**整盘写 eMMC**（`dd` 或 MASKROM + 按地址分段写）。
+TF 卡只当数据盘/备份，不要指望它引导。
+
 ## 基镜像
 
 `linyueweia/fnnas-base-images` release `v1.0.0` 的

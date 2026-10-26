@@ -3,18 +3,22 @@
 # HINLINK H88K (RK3588) 飞牛 fnOS 镜像装配
 #
 # 参照 lyw-kf（KICKPI K1）方案，按 H88K 实际裁剪：
-#   · 不注入 u-boot：H88K eMMC 现有厂商 u-boot 走 distro boot（boot.scr→fnEnv），
-#     基镜像前 32MiB 保持空闲，引导件区一个字节都不碰（用户口径：U-Boot 不动）。
+#   · 注入飞牛官方 RK3588 通用 U-Boot（uboot/fnos-rk3588-first32m.bin，
+#     U-Boot 2026.04-TRIM，RKNS@0x8000 + FIT@0x800000），只写 [17408, 32MiB) 载荷区，
+#     镜像自身 GPT 保留。板上 eMMC 原有的 U-Boot 2017.09_armbian 在 H88K 上
+#     mmc dev 1 初始化失敗（实测 4 次/13 秒全失败），已弃用。
 #   · 不注入树外模块：基镜像内核 6.18.18.c951-trim 已带全部所需驱动
 #     （STMMAC/DWMAC_ROCKCHIP=m、R8169=m 覆盖 RTL8125、REALTEK_PHY=y、BLK_DEV_NVME=y）。
 #   · 只做三件事：注入本板 DTB、写对 fnEnv.txt（fdtfile + cma=2G）、改 board.json。
 #
 # DTB 金标准：厂商实机 iNextOS 的 /boot/dtb/rockchip/rk3588-hinlink-h88k.dtb
-#   （md5 37193036099ba80b945c792f741afb3e）+ 仅 7 行改造：
+#   （md5 37193036099ba80b945c792f741afb3e）+ 8 项改造：
 #     ① 删 reserved-memory/cma 固定 256M 区（CMA 改由 cmdline cma=2G 决定，
 #        与 K1 同款 fnOS 内核实机验证路线一致）
 #     ② PMIC rk806 加 rockchip,system-power-controller（主线 rk8xx 靠它注册
 #        sys_off 断电 handler；厂商原版无此属性 → poweroff 只 halt）
+#     ③ 全树 compatible rockchip,iommu-v2 → rockchip,rk3588-iommu（21 处；主线 6.18
+#        rockchip-iommu match 表只认后者。只影响 VOP/VPU/RGA，不挡启动）
 #
 # 安全设计（不可放宽）：
 #   本脚本只对镜像文件操作，绝不写任何 /dev 设备节点。
