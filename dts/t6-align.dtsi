@@ -1,0 +1,69 @@
+/* 自动对齐官方 T6 DTB（refs/t6-official.dtb）：T6 开着、我们关着的一律打开。
+ * 板级专属（pcie/网口/存储/LED/PMIC）不在此列，走各自板级配置。
+ * NPU 官方 T6 是 disabled，本板保持启用（fnOS 带 rknpu 模块，另行验证）。
+ */
+
+/* Mali GPU（不开则 vdd_gpu_s0 断电、DRM 无 VOP、无 /dev/dri） */
+&{/gpu@fb000000} {
+	status = "okay";
+};
+
+/* VOP 显示控制器 */
+&{/vop@fdd90000} {
+	status = "okay";
+};
+
+/* VOP MMU（vop_mmu） */
+&{/iommu@fdd97e00} {
+	status = "okay";
+};
+
+/* HDMI0 */
+&{/hdmi@fde80000} {
+	status = "okay";
+};
+
+/* HDMI1 */
+&{/hdmi@fdea0000} {
+	status = "okay";
+};
+
+/* HDMI0 音频 */
+&{/hdmi0-sound} {
+	status = "okay";
+};
+
+/* HDMI1 音频 */
+&{/hdmi1-sound} {
+	status = "okay";
+};
+
+/* I2S（HDMI 音频通路） */
+&{/i2s@fddf0000} {
+	status = "okay";
+};
+
+/* I2S（HDMI 音频通路） */
+&{/i2s@fddf4000} {
+	status = "okay";
+};
+
+/* HDMI DDC i2c */
+&{/i2c@fec80000} {
+	status = "okay";
+};
+
+/* hdptxphy_hdmi0 */
+&{/phy@fed60000} {
+	status = "okay";
+};
+
+/* hdptxphy_hdmi1 */
+&{/phy@fed70000} {
+	status = "okay";
+};
+
+/* mipi DC-PHY */
+&{/phy@fed80000} {
+	status = "okay";
+};

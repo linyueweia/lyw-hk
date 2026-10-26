@@ -44,6 +44,12 @@ echo "==== 2) 放入板级 DTS 并登记到 Makefile ===="
 DTS_DIR="$KERNEL_DIR/arch/arm64/boot/dts/rockchip"
 cp "$DTS_SRC" "$DTS_DIR/$DTS_NAME"
 cp "$DTSI_SRC" "$DTS_DIR/$(basename "$DTSI_SRC")"   # 板级公共 dtsi（含 PMIC 断电属性改造）
+# 其余板级 dtsi（如 t6-align.dtsi：对齐官方 T6 的 GPU/VOP/HDMI 等开关）一并带入
+for extra_dtsi in dts/*.dtsi; do
+    [ -f "$extra_dtsi" ] || continue
+    case "$(basename "$extra_dtsi")" in memory-banks.dtsi) continue;; esac
+    cp -f "$extra_dtsi" "$DTS_DIR/$(basename "$extra_dtsi")"
+done
 # 内存节点由数据源生成（DTS 里不写死 4G/8G/16G 的数字）
 python3 tools/gen-memory-dtsi.py "$MEM_JSON" -o "$DTS_DIR/$MEM_DTSI"
 grep -q 'memory-banks.dtsi' "$DTS_DIR/$DTS_NAME" || { echo "✗ 板级 DTS 未 #include \"$MEM_DTSI\""; exit 1; }
