@@ -43,10 +43,12 @@ for DTB in "${DTBS[@]}"; do
     ok "stdout-path = serial2:1500000n8（串口 ttyS2 @1.5M）"
 
     echo "-- 2) 板载存储（eMMC / SD）--"
-    for n in /mmc@fe2e0000 /mmc@fe2d0000; do
+    # RK3588: sdhci=eMMC@fe2e0000、sdmmc=SD@fe2c0000、sdio=SDIO@fe2d0000（H88K 无 SDIO 设备，保持 disabled）
+    for n in /mmc@fe2e0000 /mmc@fe2c0000; do
         [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null)" == "okay" ]] || fail "$n 应为 okay（eMMC/SD）"
     done
-    ok "eMMC(fe2e0000) + SD(fe2d0000) 均 okay"
+    ok "eMMC(fe2e0000) + SD(fe2c0000) 均 okay"
+    fdtget -t i "$DTB" /mmc@fe2e0000 bus-width >/dev/null 2>&1 && ok "eMMC bus-width 已定义"
     ALIAS0="$(fdtget -t s "$DTB" /aliases mmc0 2>/dev/null || true)"
     ALIAS1="$(fdtget -t s "$DTB" /aliases mmc1 2>/dev/null || true)"
     echo "     aliases: mmc0=$ALIAS0  mmc1=$ALIAS1（树内定义 mmc0=SD、mmc1=eMMC）"
