@@ -79,9 +79,15 @@ for DTB in "${DTBS[@]}"; do
     ok "PMIC rk806 + 断电属性 + $CNT_REG 路稳压器"
 
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
-    N_NEW="$(grep -c 'compatible = "rockchip,rk3588-iommu"' "$TMP" || true)"
-    N_OLD="$(grep -c 'rockchip,iommu-v2' "$TMP" || true)"
-    [[ "${N_NEW:-0}" -ge 10 ]] || fail "iommu 命名不是官方内核认的 rockchip,rk3588-iommu（仅 ${N_NEW:-0} 处）"
+    # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
+    # 所以按"字符串出现次数"计数，不绑定属性行格式（踩过：带前缀的 grep 会假 0）
+    N_NEW="$(grep -o 'rockchip,rk3588-iommu' "$TMP" | wc -l | tr -d ' ')"
+    N_OLD="$(grep -o 'rockchip,iommu-v2' "$TMP" | wc -l | tr -d ' ')"
+    if [[ "${N_NEW:-0}" -lt 10 ]]; then
+        echo "  样本（含 iommu 的属性行）:"
+        grep -n 'iommu' "$TMP" | head -6 | sed 's/^/    /'
+        fail "iommu 命名不是官方内核认的 rockchip,rk3588-iommu（仅 ${N_NEW:-0} 处）"
+    fi
     [[ "${N_OLD:-0}" -eq 0 ]] || fail "DTB 仍有 rockchip,iommu-v2（${N_OLD} 处）—— 官方内核 of_match 里 0 处"
     ok "rk3588-iommu ×$N_NEW，iommu-v2 残留 0"
 
