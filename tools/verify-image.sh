@@ -31,21 +31,22 @@ mount "${LOOP}p2" "$TMP/root" || fail "挂载 rootfs 失败"
 
 echo
 echo "── 1) DTB 在位（官方自带 + 就地适配）──"
-F="$TMP/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb"
-[[ -f "$F" ]] || fail "镜像缺 dtb/rockchip/rk3588-hinlink-h88k.dtb"
+F="$TMP/boot/dtb/rockchip/rk3588-hlink-h88k.dtb"
+[[ -f "$F" ]] || fail "镜像缺 dtb/rockchip/rk3588-hlink-h88k.dtb"
 ok "DTB = 基镜像官方 $((stat -c%s "$F")) B，sha256 $(sha256sum "$F" | awk '{print substr($1,1,16)}')…"
 
 echo
 echo "── 2) DTB 关键属性（金标准）──"
 dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null
-[[ "$(fdtget -t s "$F" / model)" == "HINLINK H88K" ]] || fail "model 不符"
-ok "model = HINLINK H88K"
+MODEL="$(fdtget -t s "$F" / model)"
+[[ "$MODEL" == "Hlink H88K" || "$MODEL" == "HINLINK H88K" ]] || fail "model 不符: $MODEL"
+ok "model = $MODEL"
 [[ "$(fdtget -t s "$F" / compatible)" == *h88k* ]] || fail "compatible 不符"
 ok "compatible 含 h88k"
 N_IOMMU="$(grep -c 'compatible = "rockchip,rk3588-iommu"' "$TMP/in.dts" || true)"
-[[ "${N_IOMMU:-0}" -eq 21 ]] || fail "iommu 适配数量不符：$N_IOMMU（期望 21）"
+[[ "${N_IOMMU:-0}" -ge 10 ]] || fail "iommu 不是飞牛树的 rk3588-iommu（仅 $N_IOMMU 处）"
 grep -q 'rockchip,iommu-v2' "$TMP/in.dts" && fail "DTB 仍有 rockchip,iommu-v2（官方内核 of_match 里 0 处）"
-ok "IOMMU 已适配到官方内核（rk3588-iommu ×21，无 iommu-v2）"
+ok "IOMMU = 飞牛内核树命名 rockchip,rk3588-iommu ×$N_IOMMU（无 iommu-v2）"
 [[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] || fail "gmac0 phy-mode 不符"
 [[ "$(fdtget -t i "$F" /ethernet@fe1b0000 tx_delay)" == "68" ]] || fail "gmac0 tx_delay 不符"
 ok "gmac0 rgmii-rxid + tx_delay=68(0x44)"
@@ -129,8 +130,8 @@ echo "── 5) board.json ──"
 BJ="$TMP/root/board.json"
 if [[ -f "$BJ" ]]; then
     sed 's/^/     /' "$BJ"
-    grep -q 'hinlink,h88k' "$BJ" || fail "board.json 未指向 hinlink,h88k"
-    ok "board.json = hinlink,h88k"
+    grep -q 'hlink,h88k' "$BJ" || fail "board.json 未指向 hlink,h88k"
+    ok "board.json = hlink,h88k"
 else
     echo "  ⚠ 无 board.json（基镜像若无则跳过）"
 fi

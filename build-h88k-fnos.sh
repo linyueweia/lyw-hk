@@ -210,14 +210,14 @@ if [[ -f "$BJ" ]]; then
     cat > "$BJ" <<'EOF'
 {
   "model": {
-    "id": "hinlink,h88k",
+    "id": "hlink,h88k",
     "name": "HINLINK H88K (RK3588)"
   },
   "led": []
 }
 EOF
     python3 -c "import json,sys; json.load(open('$BJ'))" || fail "board.json 不是合法 JSON"
-    echo "  ✓ board.json → hinlink,h88k"
+    echo "  ✓ board.json → hlink,h88k"
 else
     echo "  ⚠ rootfs 无 board.json（跳过，不判失败）"
 fi

@@ -69,6 +69,18 @@ jobs:
           sudo apt-get install -y -qq xz-utils btrfs-progs device-tree-compiler \
                                      e2fsprogs fdisk gawk
 
+      - name: 编译 DTB（飞牛内核树 unifreq/linux-6.18.y）
+        run: |
+          set -e
+          chmod +x build-dtb.sh tools/verify-dtb.sh
+          bash build-dtb.sh
+          ls -la dist/
+
+      - name: DTB 门禁（板级 + SoC 命名 + 改造项）
+        run: |
+          set -e
+          bash tools/verify-dtb.sh
+
       - name: Fetch and unpack fnOS base image
         run: |
           set -e
@@ -113,6 +125,7 @@ jobs:
         run: |
           set -e
           sudo -E BASE=base/fnnas-base.img \
+                  DTB=dist/rk3588-hlink-h88k.dtb \
                   UBOOT=uboot/h88k-vendor-first32m.bin \
                   BUILD_NUM="${{ github.run_number }}" \
                   OUT_DIR=out \
@@ -123,7 +136,7 @@ jobs:
         run: |
           set -e
           IMG="$(ls out/*.img | head -1)"
-          sudo -E UBOOT=uboot/h88k-vendor-first32m.bin bash tools/verify-image.sh "$IMG"
+          sudo -E DTB=dist/rk3588-hlink-h88k.dtb UBOOT=uboot/h88k-vendor-first32m.bin bash tools/verify-image.sh "$IMG"
 
       - name: Show outputs
         run: |
