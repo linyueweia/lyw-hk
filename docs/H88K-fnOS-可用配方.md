@@ -93,11 +93,14 @@ lsblk | grep -E "nvme|mmcblk1"
 ## 五、网口与多媒体：实机结论（2026-10-26 夜）
 
 ### 5.1 三个网口（V3，丝印 ETH0/ETH1/ETH2，上到下）
-| 丝印 | 控制器 | 内核名 | 速率 | DT 节点 |
-|---|---|---|---|---|
-| ETH0 | RTL8125B | enP3p49s0 或 enP4p65s0 | 2.5G | pcie@fe180000 / fe190000 |
-| ETH1 | RTL8125B | 同上（另一个） | 2.5G | 同上 |
-| ETH2 | RK3588 GMAC | eth0 | 1G | ethernet@fe1b0000 |
+| 丝印 | 控制器 | 内核名 | 速率 | DT 节点 | PCI 地址 |
+|---|---|---|---|---|---|
+| ETH0 | RTL8125B | enP4p65s0 | 2.5G | pcie@fe190000 | 0004:41:00.0 |
+| ETH1 | RTL8125B | enP3p49s0 | 2.5G | pcie@fe180000 | 0003:31:00.0 |
+| ETH2 | RK3588 GMAC | eth0 | 1G | ethernet@fe1b0000 | platform |
+
+（映射由用户在实机上确认：ETH1 插线时只有 0003:31 起链路；T6 官方两个 GMAC 全 disabled，
+H88K 仅多开 ethernet@fe1b0000 这一个千兆口，其余与 T6 完全一致。）
 
 - 两个 2.5G 分别走 `pcie@fe180000`（PCI 0003:31）与 `pcie@fe190000`（PCI 0004:41，**必须显式启用**，
   reset-gpios=<&gpio4 RK_PA5>、phy=combphy0_ps）。
