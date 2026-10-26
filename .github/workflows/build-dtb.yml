@@ -56,8 +56,14 @@ jobs:
           cat dtb-sha256sums.txt
           dtc -I dtb -O dts dist/rk3588-hlink-h88k.dtb -o /tmp/h88k.dts
           echo "---- 关键节点抽查 ----"
-          for node in "ethernet@fe1b0000" "mmc@fe2e0000" "mmc@fe2d0000" "pcie@fe150000" "pmic@0" "gpio-leds"; do
+          for node in "ethernet@fe1b0000" "mmc@fe2e0000" "mmc@fe2d0000" "pcie@fe150000" "pmic@0" "gpio-leds" \
+                      "mpp-srv" "npu@fdab0000" "gpu@fb000000" "rga@fdb60000"; do
             grep -q "$node" /tmp/h88k.dts && echo "OK: $node" || { echo "!! 缺少 $node"; exit 1; }
+          done
+          echo "---- 加速器命名（飞牛树外驱动 of_match）----"
+          for s in "rockchip,mpp-service" "rockchip,rk3588-rknpu" "rockchip,rk3588-mali-csf" \
+                   "arm,mali-valhall" "clk_mali" "rockchip,rga3_core0" "rockchip,rga3_core1" "rockchip,rga2_core0"; do
+            grep -q "$s" /tmp/h88k.dts && echo "OK: $s" || { echo "!! 缺 $s（树外驱动 match 不上，加速器不会起来）"; exit 1; }
           done
 
       - name: 上传 DTB 产物

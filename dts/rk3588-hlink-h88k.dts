@@ -4,7 +4,7 @@
 /dts-v1/;
 
 #include "rk3588-hlink.dtsi"
-#include "t6-align.dtsi"
+#include "fnos-accel.dtsi"
 
 / {
 	model = "Hlink H88K";

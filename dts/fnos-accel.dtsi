@@ -1,0 +1,137 @@
+/* 对齐「真·官方 T6 DTB」的多媒体/加速器节点。
+ *
+ * 依据（2026-10-27 实机取证，refs/t6-official.dtb = t6.img p1 原件，sha256 09425cc7…）：
+ *   飞牛内核 6.18.18.c1145-trim 的多媒体驱动是 Rockchip BSP 树外模块：
+ *     updates/trim/rk_gpu/rkgpu_bifrost_csf.ko   of_match = rockchip,rk3588-mali-csf / arm,mali-valhall
+ *     updates/trim/rk_vcodec/rknpu.ko            of_match = rockchip,rk3588-rknpu
+ *     updates/trim/rk_vcodec/rk_vcodec.ko        of_match = rockchip,mpp-service（顶层 mpp-srv 节点）
+ *     updates/trim/rk_vcodec/rga3.ko             of_match = rockchip,rga3_core0 / rga3_core1 / rga2_core0
+ *   而主线 rk3588-base.dtsi 写的是 arm,mali-valhall-csf / rockchip,rk3588-rknn-core /
+ *   rockchip,rk3588-rga3，且完全没有 mpp-srv 节点 —— 于是三个驱动都注册成功却 0 设备绑定，
+ *   表现为：无 /dev/dri、无 /dev/rknpu、无 /dev/mpp_service。
+ *   本文件把这些节点按真 T6 DTB 的命名/属性/中断顺序覆盖回来（硬件地址、时钟、电源域
+ *   与主线 dtsi 一致，只改驱动认得的命名与必需属性）。
+ */
+
+/* ---------------- 显示通路（保持开启） ---------------- */
+&{/vop@fdd90000} { status = "okay"; };
+&{/iommu@fdd97e00} { status = "okay"; };
+&{/hdmi@fde80000} { status = "okay"; };
+&{/hdmi@fdea0000} { status = "okay"; };
+&{/hdmi0-sound} { status = "okay"; };
+&{/hdmi1-sound} { status = "okay"; };
+&{/i2s@fddf0000} { status = "okay"; };
+&{/i2s@fddf4000} { status = "okay"; };
+&{/i2c@fec80000} { status = "okay"; };
+&{/phy@fed60000} { status = "okay"; };
+&{/phy@fed70000} { status = "okay"; };
+&{/phy@fed80000} { status = "okay"; };
+
+/* ---------------- GPU：BSP kbase (Bifrost CSF) ----------------
+ * 真 T6：compatible = rockchip,rk3588-mali-csf + arm,mali-valhall
+ *        clock-names = clk_mali / clk_gpu_coregroup / clk_gpu_stacks / clk_gpu  （4 个）
+ *        interrupt-names = GPU / MMU / JOB （对应 SPI 94 / 93 / 92）
+ *        mali-supply / mem-supply = vdd_gpu_s0
+ */
+&gpu {
+	compatible = "rockchip,rk3588-mali-csf", "arm,mali-valhall";
+	clocks = <&scmi_clk SCMI_CLK_GPU>, <&cru CLK_GPU_COREGROUP>,
+		 <&cru CLK_GPU_STACKS>, <&cru CLK_GPU>;
+	clock-names = "clk_mali", "clk_gpu_coregroup", "clk_gpu_stacks", "clk_gpu";
+	interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 93 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH 0>;
+	interrupt-names = "GPU", "MMU", "JOB";
+	mali-supply = <&vdd_gpu_s0>;
+	mem-supply = <&vdd_gpu_s0>;
+	upthreshold = <60>;
+	downdifferential = <30>;
+	power-off-delay-ms = <200>;
+	status = "okay";
+};
+
+/* ---------------- NPU：BSP rknpu（三核一个设备） ----------------
+ * 真 T6：compatible = rockchip,rk3588-rknpu；reg 三段各 64KiB（pc/cna/core）；
+ *        3 个中断、8 个时钟、6 个复位、3 个电源域。
+ */
+&{/npu@fdab0000} {
+	compatible = "rockchip,rk3588-rknpu";
+	reg = <0x0 0xfdab0000 0x0 0x10000>,
+	      <0x0 0xfdac0000 0x0 0x10000>,
+	      <0x0 0xfdad0000 0x0 0x10000>;
+	reg-names = "pc", "cna", "core";
+	interrupts = <GIC_SPI 110 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 111 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 112 IRQ_TYPE_LEVEL_HIGH 0>;
+	interrupt-names = "npu0_irq", "npu1_irq", "npu2_irq";
+	clocks = <&scmi_clk SCMI_CLK_NPU>,
+		 <&cru ACLK_NPU0>, <&cru ACLK_NPU1>, <&cru ACLK_NPU2>,
+		 <&cru HCLK_NPU0>, <&cru HCLK_NPU1>, <&cru HCLK_NPU2>,
+		 <&cru PCLK_NPU_ROOT>;
+	clock-names = "clk_npu", "aclk0", "aclk1", "aclk2",
+		      "hclk0", "hclk1", "hclk2", "pclk";
+	resets = <&cru SRST_A_RKNN0>, <&cru SRST_A_RKNN1>, <&cru SRST_A_RKNN2>,
+		 <&cru SRST_H_RKNN0>, <&cru SRST_H_RKNN1>, <&cru SRST_H_RKNN2>;
+	reset-names = "srst_a0", "srst_a1", "srst_a2", "srst_h0", "srst_h1", "srst_h2";
+	power-domains = <&power RK3588_PD_NPUTOP>, <&power RK3588_PD_NPU1>,
+			<&power RK3588_PD_NPU2>;
+	power-domain-names = "npu0", "npu1", "npu2";
+	iommus = <&rknn_mmu_0>;
+	rknpu-supply = <&vdd_npu_s0>;
+	mem-supply = <&vdd_npu_s0>;
+	status = "okay";
+};
+
+&rknn_mmu_0 { status = "okay"; };
+/* 独立的两颗核节点不再单独启用（BSP 驱动把三核当一个设备） */
+&{/npu@fdac0000} { status = "disabled"; };
+&{/npu@fdad0000} { status = "disabled"; };
+
+/* ---------------- VPU / MPP 服务 ----------------
+ * rk_vcodec.ko 只认顶层 mpp-srv（rockchip,mpp-service），
+ * 主线 dtsi 完全没有这个节点 → /dev/mpp_service 永远不出现。
+ */
+/ {
+	mpp_srv: mpp-srv {
+		compatible = "rockchip,mpp-service";
+		rockchip,taskqueue-count = <12>;
+		rockchip,resetgroup-count = <1>;
+		status = "okay";
+	};
+};
+
+/* 各编解码核的 IOMMU 全开（真 T6 里都是 okay） */
+&vpu121_mmu { status = "okay"; };
+&vepu121_0_mmu { status = "okay"; };
+&vepu121_1_mmu { status = "okay"; };
+&vepu121_2_mmu { status = "okay"; };
+&vepu121_3_mmu { status = "okay"; };
+&av1d_mmu { status = "okay"; };
+
+/* ---------------- RGA：BSP rga3 ----------------
+ * 真 T6：fdb60000 = rga3_core0、fdb70000 = rga3_core1、fdb80000 = rga2_core0，
+ *        时钟名 aclk_rga3_0 / hclk_rga3_0 / clk_rga3_0 等（主线写 aclk/hclk/sclk）。
+ */
+&rga3_core0 {
+	compatible = "rockchip,rga3_core0";
+	clock-names = "aclk_rga3_0", "hclk_rga3_0", "clk_rga3_0";
+	interrupt-names = "rga3_core0_irq";
+	status = "okay";
+};
+
+&rga3_core1 {
+	compatible = "rockchip,rga3_core1";
+	clock-names = "aclk_rga3_1", "hclk_rga3_1", "clk_rga3_1";
+	interrupt-names = "rga3_core1_irq";
+	status = "okay";
+};
+
+&rga {
+	compatible = "rockchip,rga2_core0";
+	clock-names = "aclk_rga2", "hclk_rga2", "clk_rga2";
+	interrupt-names = "rga2_irq";
+	status = "okay";
+};
+
+&rga3_0_mmu { status = "okay"; };
+&rga3_1_mmu { status = "okay"; };

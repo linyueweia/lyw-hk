@@ -101,22 +101,52 @@ for DTB in "${DTBS[@]}"; do
     [[ -z "$LBL" ]] || fail "/ethernet@fe1b0000 不能有 label（现为 '$LBL'）—— stmmac 会撞名报 -17"
     ok "gmac 无 label（避免 stmmac 与 r8169 撞网卡名）"
 
-    # 多媒体必须与官方 T6 逐节点一致：GPU/VOP/HDMI/VPU 开，NPU 与多余 vdec/rga 关
-    for n in /npu@fdab0000 /npu@fdac0000 /npu@fdad0000; do
-        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
-        [[ "$st" == "disabled" ]] || fail "$n 应为 disabled（官方 T6 是 disabled，实际 '${st:-缺失}'）"
+    # 加速器必须按【飞牛内核树外驱动】的 of_match 命名（2026-10-27 实机定案，旧口径已推翻）：
+    #   GPU  rockchip,rk3588-mali-csf + arm,mali-valhall + clock-names clk_mali  (rkgpu_bifrost_csf.ko)
+    #   NPU  rockchip,rk3588-rknpu（三核合一）                                   (rknpu.ko)
+    #   VPU  顶层 /mpp-srv = rockchip,mpp-service                                (rk_vcodec.ko)
+    #   RGA  rockchip,rga3_core0 / rga3_core1 / rga2_core0                       (rga3.ko)
+    # 旧口径「NPU/RGA 一律 disabled」源自 refs/t6-official.dtb 被换成了主线树编的 DTB；
+    # 真件（官方 T6 镜像 p1，sha256 09425cc7…）里 NPU okay、有 mpp-srv、rga3 全开。
+    MV="$(fdtget -t s "$DTB" /mpp-srv compatible 2>/dev/null || true)"
+    [[ "$MV" == *rockchip,mpp-service* ]] || fail "缺顶层 /mpp-srv（rockchip,mpp-service）—— /dev/mpp_service 不会出现"
+    [[ "$(fdtget -t s "$DTB" /mpp-srv status 2>/dev/null || echo okay)" == "okay" ]] || fail "/mpp-srv 应为 okay"
+    ok "mpp-srv = rockchip,mpp-service（okay）"
+
+    GCOMP="$(fdtget -t s "$DTB" /gpu@fb000000 compatible 2>/dev/null || true)"
+    [[ "$GCOMP" == *rockchip,rk3588-mali-csf* ]] || fail "GPU compatible 应为 rockchip,rk3588-mali-csf（BSP kbase），实际 '$GCOMP'"
+    [[ "$GCOMP" == *arm,mali-valhall* ]] || fail "GPU compatible 缺 arm,mali-valhall，实际 '$GCOMP'"
+    GCLK="$(fdtget -t s "$DTB" /gpu@fb000000 clock-names 2>/dev/null | tr '\n' ' ' || true)"
+    [[ "$GCLK" == *clk_mali* ]] || fail "GPU clock-names 缺 clk_mali（BSP kbase 按名取时钟），实际 '$GCLK'"
+    [[ "$(fdtget -t s "$DTB" /gpu@fb000000 status 2>/dev/null)" == "okay" ]] || fail "/gpu@fb000000 应为 okay"
+    fdtget "$DTB" /gpu@fb000000 mali-supply >/dev/null 2>&1 || fail "GPU 缺 mali-supply（kbase probe 需要）"
+    ok "GPU = rockchip,rk3588-mali-csf + arm,mali-valhall（clk_mali / mali-supply 齐）"
+
+    NCOMP="$(fdtget -t s "$DTB" /npu@fdab0000 compatible 2>/dev/null || true)"
+    [[ "$NCOMP" == *rockchip,rk3588-rknpu* ]] || fail "NPU compatible 应为 rockchip,rk3588-rknpu，实际 '$NCOMP'"
+    [[ "$(fdtget -t s "$DTB" /npu@fdab0000 status 2>/dev/null)" == "okay" ]] || fail "/npu@fdab0000 应为 okay"
+    NIRQ="$(fdtget -t s "$DTB" /npu@fdab0000 interrupt-names 2>/dev/null | tr '\n' ' ' || true)"
+    [[ "$NIRQ" == *npu0_irq* ]] || fail "NPU interrupt-names 缺 npu0_irq，实际 '$NIRQ'"
+    for n in /npu@fdac0000 /npu@fdad0000; do
+        [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)" == "disabled" ]] \
+            || fail "$n 应保持 disabled（BSP 驱动把三核当一个设备）"
     done
-    for n in /video-codec@fdc38000 /video-codec@fdc40000 /rga@fdb60000 /rga@fdb70000; do
-        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
-        [[ "$st" == "disabled" ]] || fail "$n 应为 disabled（官方 T6 无此节点）"
+    ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位）"
+
+    for pair in "/rga@fdb60000:rockchip,rga3_core0" "/rga@fdb70000:rockchip,rga3_core1" "/rga@fdb80000:rockchip,rga2_core0"; do
+        n="${pair%%:*}"; want="${pair#*:}"
+        got="$(fdtget -t s "$DTB" "$n" compatible 2>/dev/null || true)"
+        [[ "$got" == *"$want"* ]] || fail "$n compatible 应为 $want，实际 '$got'"
+        [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null)" == "okay" ]] || fail "$n 应为 okay"
     done
-    ok "多媒体与官方 T6 逐节点一致（NPU/多余 vdec/rga 均 disabled）"
-    # 编解码核与官方一致：vpu121 ×1 + vepu121 ×4 + av1 ×1
+    ok "RGA = rga3_core0 / rga3_core1 / rga2_core0（均 okay）"
+
+    # 编解码核（物理块命名沿用内核树，MPP 经 mpp-srv 汇总）
     N_VDEC="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP" || true; } | wc -l | tr -d ' ')"
     N_VENC="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP" || true; } | wc -l | tr -d ' ')"
     [[ "${N_VDEC:-0}" -ge 1 ]] || fail "缺 rk3588-vpu121 解码核"
     [[ "${N_VENC:-0}" -ge 4 ]] || fail "缺 rk3588-vepu121 编码核（应 ≥4）"
-    ok "编解码核：vpu121 ×${N_VDEC} / vepu121 ×${N_VENC}（与官方 T6 配置一致）"
+    ok "编解码核：vpu121 ×${N_VDEC} / vepu121 ×${N_VENC}"
 
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
     # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
