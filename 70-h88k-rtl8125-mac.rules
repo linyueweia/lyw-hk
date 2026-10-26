@@ -1,0 +1,1 @@
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="r8169", RUN+="/usr/local/sbin/h88k-set-mac.sh %k"
