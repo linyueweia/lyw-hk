@@ -68,7 +68,14 @@ jobs:
           sudo apt-get install -y -qq xz-utils btrfs-progs device-tree-compiler \
                                      e2fsprogs fdisk gawk
 
-      - name: DTB 门禁（dtc 编译 + 金标准断言 + 差异面）
+      - name: 编译 DTB（在飞牛内核树里编厂商板级 DTS）
+        run: |
+          set -e
+          chmod +x build-dtb.sh
+          bash build-dtb.sh
+          ls -la dist/
+
+      - name: DTB 门禁（板级 + SoC 命名 + 改造项断言）
         run: |
           set -e
           chmod +x tools/verify-dtb.sh
