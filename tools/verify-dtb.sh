@@ -27,7 +27,9 @@ if grep -qiE '^(Error|.*: Error)' "$TMP/dtc.log"; then
     cat "$TMP/dtc.log"; fail "dtc 编译错误"
 fi
 if [[ -s "$TMP/dtc.log" ]]; then
-    echo "  （dtc 告警，不判死）:"; sed 's/^/     /' "$TMP/dtc.log" | head -5
+    echo "  （dtc 告警，不判死）:"
+    # 注意 pipefail：不能用 sed|head（SIGPIPE 会把整条管道变成非零 → 假红），用 awk 限行
+    awk 'NR<=5{print "     " $0} END{if(NR>5)print "     … 共 " NR " 行告警"}' "$TMP/dtc.log"
 fi
 ok "dtc 编译通过 ($(stat -c%s "$TMP/from_dts.dtb") B)"
 
