@@ -314,7 +314,6 @@
 
 &gmac0 {
 	status = "okay";
-	label = "eth0";
 	pinctrl-names = "default";
 	pinctrl-0 = <&gmac0_miim
 		     &gmac0_tx_bus2

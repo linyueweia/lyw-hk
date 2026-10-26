@@ -24,6 +24,9 @@ fix_one() {
     mac="02:$(echo "$h" | ${CUT_BIN} -c1-2):$(echo "$h" | ${CUT_BIN} -c3-4):$(echo "$h" | ${CUT_BIN} -c5-6):$(echo "$h" | ${CUT_BIN} -c7-8):$(echo "$h" | ${CUT_BIN} -c9-10)"
     cur="$(${CAT_BIN} /sys/class/net/$if_/address 2>/dev/null)"
     [ "$cur" = "$mac" ] && return 0
+    # 活链路一律不碰：改 MAC 必须先 down，会把正在跑的 SSH/面板打断（踩过：用户看到"突然断网"）
+    carr="$(${CAT_BIN} /sys/class/net/$if_/carrier 2>/dev/null || echo 0)"
+    [ "$carr" = "1" ] && return 0
     was_up=0
     ${IP_BIN} link show "$if_" 2>/dev/null | head -1 | grep -q "UP" && was_up=1
     ${IP_BIN} link set dev "$if_" down 2>/dev/null || true

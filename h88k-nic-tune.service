@@ -1,0 +1,11 @@
+[Unit]
+Description=H88K: disable EEE/ASPM on RTL8125 (fix link flapping)
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/h88k-nic-tune.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

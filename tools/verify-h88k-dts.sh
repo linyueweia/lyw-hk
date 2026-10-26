@@ -107,6 +107,12 @@ PY
         [[ "$st" == "okay" ]] || fail "$n 应为 okay（官方 T6 是 okay；实际 '${st:-缺失}'）"
     done
     ok "GPU(gpu@fb000000) + VOP(vop@fdd90000) + HDMI(hdmi@fde80000) 均 okay"
+
+    # gmac 节点不能带 label：stmmac 会用 label 当网卡名，和 r8169 的 ethN 撞名 → probe -17 直接放弃
+    # （实测：带 label="eth0" 时千兆口整个不出现，DHCP 地址跟着漂）
+    LBL="$(fdtget -t s "$DTB" /ethernet@fe1b0000 label 2>/dev/null || true)"
+    [[ -z "$LBL" ]] || fail "/ethernet@fe1b0000 不能有 label（现为 '$LBL'）—— stmmac 会撞名报 -17"
+    ok "gmac 无 label（避免 stmmac 与 r8169 撞网卡名）"
     # 编解码核与官方一致：vpu121 ×1 + vepu121 ×4 + av1 ×1
     N_VDEC="$(grep -o 'rockchip,rk3588-vpu121' "$TMP" | wc -l | tr -d ' ')"
     N_VENC="$(grep -o 'rockchip,rk3588-vepu121' "$TMP" | wc -l | tr -d ' ')"
