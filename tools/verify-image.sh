@@ -63,10 +63,10 @@ if fdtget "$F" /reserved-memory/cma reg >/dev/null 2>&1; then
     fail "镜像 DTB 仍带 reserved-memory/cma 固定区"
 fi
 ok "reserved-memory/cma 已删（CMA 交给 cmdline）"
-for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000 /pcie@fe190000; do
+for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000; do
     [[ "$(fdtget -t s "$F" "$n" status)" == "okay" ]] || fail "$n 应 okay"
 done
-ok "PCIe 四控制器 okay（NVMe/WiFi/2.5G×2）"
+ok "PCIe fe150000/fe170000/fe180000 okay（NVMe + 2.5G×2；fe160000/fe190000 本板无插槽）"
 
 echo
 echo "── 3) fnEnv.txt（引导参数）──"

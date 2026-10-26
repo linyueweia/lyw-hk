@@ -94,11 +94,22 @@ for DTB in "${DTBS[@]}"; do
     ok "rk3588-iommu ×$N_NEW，iommu-v2 残留 0"
 
     echo "-- 7) PCIe / PHY（NVMe + 双 2.5G 的前提）--"
-    for n in /pcie@fe150000 /pcie@fe160000 /pcie@fe170000 /pcie@fe180000 /pcie@fe190000; do
+    # 本板 dtsi 实际启用：pcie3x4(fe150000) + pcie2x1l0(fe170000) + pcie2x1l1(fe180000)
+    # fe160000/fe190000 树内保持 disabled（无对应插槽），不断言 okay
+    for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000; do
         st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
         [[ "$st" == "okay" ]] || fail "$n 应为 okay（实际 '${st:-缺失}'）"
     done
-    ok "PCIe fe15/fe16/fe17/fe18/fe19 全 okay"
+    ok "PCIe fe150000(pcie3x4) + fe170000 + fe180000 全 okay"
+    for n in /pcie@fe160000 /pcie@fe190000; do
+        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
+        echo "     $n = ${st:-未定义}（本板无此插槽，保持 disabled 属正常）"
+    done
+    for ph in /phy@fee10000 /phy@fee20000; do   # combphy1_ps / combphy2_psu（base dtsi 实际地址）
+        st="$(fdtget -t s "$DTB" "$ph" status 2>/dev/null || true)"
+        [[ "$st" == "okay" ]] || fail "$ph 应为 okay（combphy）"
+    done
+    ok "combphy1_ps / combphy2_psu okay"
 
     echo "-- 8) 板载 SATA / 其它外设 --"
     grep -q 'sata@' "$TMP" || fail "缺 SATA 节点"
