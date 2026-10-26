@@ -67,3 +67,20 @@
 &{/phy@fed80000} {
 	status = "okay";
 };
+
+/* ---- 与 T6 逐节点对齐的“关闭”项 ----
+ * T6 官方 DTB：NPU 三个核及其 iommu 全部 disabled；只有 rga@fdb80000、没有
+ * fdc38000/fdc40000 这两个 vdec 核。本板为求与官方一致，同样关掉。
+ * 注：这些关闭不损失实际功能——官方内核里 rknpu/rga3 的 of_match 都不认 rk3588 节点，
+ * 本来也探测不到；关掉只是让 DT 与官方逐节点相同。
+ */
+&{/npu@fdab0000} { status = "disabled"; };
+&{/npu@fdac0000} { status = "disabled"; };
+&{/npu@fdad0000} { status = "disabled"; };
+&{/iommu@fdab9000} { status = "disabled"; };
+&{/iommu@fdaca000} { status = "disabled"; };
+&{/iommu@fdada000} { status = "disabled"; };
+&{/video-codec@fdc38000} { status = "disabled"; };
+&{/video-codec@fdc40000} { status = "disabled"; };
+&{/rga@fdb60000} { status = "disabled"; };
+&{/rga@fdb70000} { status = "disabled"; };

@@ -113,6 +113,17 @@ PY
     LBL="$(fdtget -t s "$DTB" /ethernet@fe1b0000 label 2>/dev/null || true)"
     [[ -z "$LBL" ]] || fail "/ethernet@fe1b0000 不能有 label（现为 '$LBL'）—— stmmac 会撞名报 -17"
     ok "gmac 无 label（避免 stmmac 与 r8169 撞网卡名）"
+
+    # 多媒体必须与官方 T6 逐节点一致：GPU/VOP/HDMI/VPU 开，NPU 与多余 vdec/rga 关
+    for n in /npu@fdab0000 /npu@fdac0000 /npu@fdad0000; do
+        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
+        [[ "$st" == "disabled" ]] || fail "$n 应为 disabled（官方 T6 是 disabled，实际 '${st:-缺失}'）"
+    done
+    for n in /video-codec@fdc38000 /video-codec@fdc40000 /rga@fdb60000 /rga@fdb70000; do
+        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
+        [[ "$st" == "disabled" ]] || fail "$n 应为 disabled（官方 T6 无此节点）"
+    done
+    ok "多媒体与官方 T6 逐节点一致（NPU/多余 vdec/rga 均 disabled）"
     # 编解码核与官方一致：vpu121 ×1 + vepu121 ×4 + av1 ×1
     N_VDEC="$(grep -o 'rockchip,rk3588-vpu121' "$TMP" | wc -l | tr -d ' ')"
     N_VENC="$(grep -o 'rockchip,rk3588-vepu121' "$TMP" | wc -l | tr -d ' ')"
