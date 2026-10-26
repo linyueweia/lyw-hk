@@ -46,7 +46,8 @@ def main():
     pmic = fdt.resolve_path("/spi@feb20000/rk806single@0")
     names = [p.name for p in pmic.subdata if hasattr(p, "name")]
     if not any("system-power-controller" in n for n in names):
-        pmic.append(FdtProperty("rockchip,system-power-controller"))
+        # dtc 要求属性必须在子节点之前 —— 不能 append 到 regulators 后面
+        pmic.insert(0, FdtProperty("rockchip,system-power-controller"))
         print("  ② 已加 rockchip,system-power-controller")
     else:
         print("  ② 已存在（跳过）")

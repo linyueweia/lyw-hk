@@ -5433,6 +5433,7 @@
         assigned-clock-rates = <0x0bebc200>;
         phandle = <0x0000029c>;
         rk806single@0 {
+            rockchip,system-power-controller;
             compatible = "rockchip,rk806";
             spi-max-frequency = <0x000f4240>;
             reg = <0x00000000>;
@@ -5795,7 +5796,6 @@
                     };
                 };
             };
-            rockchip,system-power-controller;
         };
     };
     spi@feb30000 {
