@@ -1,0 +1,157 @@
+#==========================================================================
+# 为 HINLINK H88K (RK3588) 构建可启动的飞牛 fnOS ARM64 固件镜像
+#
+# 方案 = lyw-kf（KICKPI K1）同款，按 H88K 裁剪：
+#   · 不注入 u-boot（H88K 现有厂商 u-boot 走 distro boot，用户口径：U-Boot 不动）
+#   · 不注入树外模块（基镜像内核 6.18.18.c951-trim 已带 STMMAC/R8169/REALTEK_PHY/NVME）
+#   · 三件事：注入厂商金标准 DTB、fnEnv（fdtfile + cma=2G）、board.json
+#   · DTB 门禁（dtc 编译 + 金标准断言 + 与厂商实机底本差异面受控）作为硬门禁
+#   · 镜像自证不过就不出产物
+#==========================================================================
+name: Build fnOS HINLINK H88K Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_image_tag:
+        description: "fnnas-base-images 的 release tag（基镜像来源）"
+        required: false
+        default: "v1.0.0"
+        type: string
+      base_image_asset:
+        description: "基镜像资产名"
+        required: false
+        default: "fnnas-official-arm64-image_rockchip.img.gz"
+        type: string
+      base_image_sha256:
+        description: "基镜像(解压后) sha256；留空跳过断言（首跑取 CI 实测值后回填）"
+        required: false
+        default: ""
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "dts/**"
+      - "dist/**"
+      - "refs/**"
+      - "*.sh"
+      - "tools/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: write
+
+env:
+  TZ: Etc/UTC
+
+jobs:
+  build:
+    name: Assemble fnOS image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space (基镜像 + 产物 xz 需要空间)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xz-utils btrfs-progs device-tree-compiler \
+                                     e2fsprogs fdisk gawk
+
+      - name: DTB 门禁（dtc 编译 + 金标准断言 + 差异面）
+        run: |
+          set -e
+          chmod +x tools/verify-dtb.sh
+          bash tools/verify-dtb.sh
+
+      - name: Cache fnOS base image
+        id: basecache
+        uses: actions/cache@v4
+        with:
+          path: base
+          key: fnnas-base-${{ inputs.base_image_tag || 'v1.0.0' }}-${{ inputs.base_image_asset || 'fnnas-official-arm64-image_rockchip.img.gz' }}
+
+      - name: Fetch and unpack fnOS base image
+        run: |
+          set -e
+          TAG="${{ inputs.base_image_tag || 'v1.0.0' }}"
+          ASSET="${{ inputs.base_image_asset || 'fnnas-official-arm64-image_rockchip.img.gz' }}"
+          mkdir -p base
+          if [[ ! -f base/fnnas-base.img ]]; then
+            URL="https://github.com/linyueweia/fnnas-base-images/releases/download/${TAG}/${ASSET}"
+            echo "  下载基镜像: $URL"
+            curl -fL --retry 3 -o base/base.img.gz "$URL"
+            gzip -t base/base.img.gz
+            gunzip -c base/base.img.gz > base/fnnas-base.img
+            rm -f base/base.img.gz
+          fi
+          EXPECT_SHA="${{ inputs.base_image_sha256 || '' }}"
+          if [[ -n "$EXPECT_SHA" ]]; then
+            GOT="$(sha256sum base/fnnas-base.img | awk '{print $1}')"
+            if [[ "$GOT" == "$EXPECT_SHA" ]]; then
+              echo "  ✓ 基镜像 sha256 一致 $GOT"
+            else
+              echo "  ✗ 基镜像 sha256 不符：期望 $EXPECT_SHA 实得 $GOT"
+              exit 1
+            fi
+          else
+            echo "  （未设 base_image_sha256，跳过断言；CI 实测值: $(sha256sum base/fnnas-base.img | awk '{print $1}')）"
+          fi
+          ls -la base/
+          sudo parted -s base/fnnas-base.img unit s print || true
+
+      - name: Assemble fnOS image
+        run: |
+          set -e
+          sudo -E BASE=base/fnnas-base.img \
+                  DTB=dist/rk3588-hinlink-h88k.dtb \
+                  BUILD_NUM="${{ github.run_number }}" \
+                  OUT_DIR=out \
+                  bash build-h88k-fnos.sh
+          ls -la out/
+
+      - name: 镜像自证（硬门禁）
+        run: |
+          set -e
+          IMG="$(ls out/*.img | head -1)"
+          sudo -E DTB=dist/rk3588-hinlink-h88k.dtb bash tools/verify-image.sh "$IMG"
+
+      - name: Show outputs
+        run: |
+          ls -la out/
+          cat out/SHA256SUMS || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fnos-hinlink-h88k-${{ github.run_number }}
+          path: |
+            out/*.img.xz
+            out/SHA256SUMS
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fnos_hinlink-h88k_${{ github.run_number }}
+          name: fnOS HINLINK H88K #${{ github.run_number }}
+          body: |
+            为 HINLINK H88K (RK3588) 构建的飞牛 fnOS ARM64 镜像。
+            DTB = 厂商实机 iNextOS 金标准底本 + 7 行改造（删 cma 固定区 / 加 PMIC 断电属性）。
+            CMA=2G（fnEnv extraargs）。U-Boot 不动（沿用板上现有引导件，distro boot）。
+            DTB 门禁 + 镜像自证均已通过。
+          files: |
+            out/*.img.xz
+            out/SHA256SUMS
+          fail_on_unmatched_files: true
