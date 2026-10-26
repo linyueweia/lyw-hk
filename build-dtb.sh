@@ -40,20 +40,31 @@ echo "==== 2) 放入板级 DTS 并登记到 Makefile ===="
 DTS_DIR="$KERNEL_DIR/arch/arm64/boot/dts/rockchip"
 cp "$DTS_SRC" "$DTS_DIR/$DTS_NAME"
 MK="$DTS_DIR/Makefile"
-if grep -q "$DTS_NAME" "$MK"; then
-    echo "  Makefile 已有 $DTS_NAME"
+DTB_NAME="${DTS_NAME%.dts}.dtb"          # Makefile 里必须是 .dtb，写成 .dts 会静默不编（踩过）
+if grep -q "$DTB_NAME" "$MK"; then
+    echo "  Makefile 已有 $DTB_NAME"
 else
-    echo "dtb-\$(CONFIG_ARCH_ROCKCHIP) += $DTS_NAME" >> "$MK"
-    echo "  已追加 Makefile 条目"
+    echo "dtb-\$(CONFIG_ARCH_ROCKCHIP) += $DTB_NAME" >> "$MK"
+    echo "  已追加 Makefile 条目: dtb-\$(CONFIG_ARCH_ROCKCHIP) += $DTB_NAME"
 fi
 
 echo
 echo "==== 3) 编译 DTB（不需要交叉工具链）===="
-( cd "$KERNEL_DIR" && make ARCH=arm64 defconfig >/dev/null && make ARCH=arm64 dtbs -j"$(nproc)" )
+MAKE_LOG="$(mktemp)"
+( cd "$KERNEL_DIR" && make ARCH=arm64 defconfig >/dev/null && make ARCH=arm64 dtbs -j"$(nproc)" ) 2>&1 | tee "$MAKE_LOG"
+echo
+echo "---- 本板 DTS 相关的编译告警/错误（若有）----"
+grep -nE "hinlink|h88k" "$MAKE_LOG" | tail -30 || true
+echo "-------------------------------------------------------------"
 
 echo
 echo "==== 4) 取出产物 ===="
 mkdir -p "$(dirname "$OUT")"
+if [[ ! -f "$DTS_DIR/${DTS_NAME%.dts}.dtb" ]]; then
+    echo "✗ 没有生成 ${DTS_NAME%.dts}.dtb —— 见上面本板 DTS 的告警/错误"
+    grep -nE "Error|error:" "$MAKE_LOG" | head -40 || true
+    exit 1
+fi
 cp "$DTS_DIR/${DTS_NAME%.dts}.dtb" "$OUT"
 ls -la "$OUT"
 sha256sum "$OUT"
