@@ -1,139 +1,79 @@
-# lyw-hk — HINLINK H88K (RK3588) 飞牛 fnOS 固件适配
+# lyw-hk — HINLINK H88K (RK3588) 跑飞牛 fnOS
 
-为 **HINLINK H88K V3 (RK3588)** 构建飞牛 fnOS ARM64 固件。方案照抄 `lyw-kf`
-（KICKPI K1 的 fnOS 适配，已实机验证），按 H88K 实际情况裁剪。
+## 一句话结论
 
-## 一句话
+**H88K 没有可用的官方 fnOS 镜像（现成的 `fnos_*_HINLINK-H88K` 包都起不来）。**
+唯一跑通的配方是：**拿官方 T6 镜像当母本，只换三件板级件**，其余一律保持官方原样。
+2026-10-26 已在实机（eMMC 独立启动、卡拔出）验证通过，细节见
+[`docs/H88K-fnOS-可用配方.md`](docs/H88K-fnOS-可用配方.md)。
 
-**基镜像 + 厂商金标准 DTB + fnEnv(fdtfile / cma=2G) + board.json**，四步装配；
-U-Boot 不动、不注入任何树外模块。
+## 配方（三件替换）
 
-## DTB 适配（2026-10-26 定案：只用官方材料，就地适配官方 DTB）
-
-**不引入第三方 DTB、也不拿社区内核树编 DTB。** 做法是：用飞牛基镜像**自带**的
-`dtb/rockchip/rk3588-hinlink-h88k.dtb`（sha256 `c2162495acd7e90f…`，与厂商 iNextOS 里那份
-逐字节相同），只改**官方内核确实不认**的兼容串，证据来自官方内核二进制本体：
-
-| 兼容串 | 官方 DTB 里 | 官方内核 `vmlinuz-6.18.18.c1145-trim` 里 | 处置 |
+| # | 件 | 位置 | 来源 |
 |---|---|---|---|
-| `rockchip,iommu-v2` | 21 处 | **0 处** | 改成 `rockchip,rk3588-iommu` |
-| `rockchip,rk3588-iommu` | 0 处 | **2 处** | ← 目标名 |
-| `rockchip,mipi-dcphy` | 2 处 | 0 处（内核无此驱动） | 保留节点，不猜改名 |
-| `rockchip,rk3588-hdmirx-ctrler` | 1 处 | 0 处（HDMI-in 无驱动） | 保留节点 |
+| 1 | u-boot 载荷 | eMMC/镜像 `[17408, 32MiB)` | `uboot/h88k-istoreos2025-first32m.bin`（`U-Boot 2025.10-OpenWrt`，含 `bootflow scan -lb` + ext4） |
+| 2 | 板级 DTB | p1 `/dtb/rockchip/rk3588-hlink-h88k.dtb` | 本仓 CI 产物（飞牛内核树 `unifreq/linux-6.18.y` 编出） |
+| 3 | `fnEnv.txt` | p1 `/fnEnv.txt` | `assets/h88k/fnEnv.txt`（官方键 + `fdtfile`，**无 initrdfile**） |
 
-> 结论：**飞牛官方镜像自带的这份 H88K DTB 与它自己的内核就是错配的**（IOMMU 一个都不 probe），
-> 不是我们"适配坏"，是官方这份从厂商 6.1 BSP 直接搬来没改命名。
-
-- 工具：`tools/adapt-official-dtb.py`（dtc 往返 + 断言 21/0 + PMIC 断电属性 + 板级值不变性检查）
-- 装配时执行：`build-h88k-fnos.sh` 挂载 BOOT 后就地适配，随后再跑一次 Python 二次断言
-  （iommu ×21 / 无 `iommu-v2` / PMIC 带 `rockchip,system-power-controller`）
-- 唯一另一项改造：`pmic@0`（rk806）补 `rockchip,system-power-controller`
-  —— 官方内核 `rk8xx-core` 靠它注册 sys_off handler，不加 `poweroff` 只 halt 不断电
-- ⚠ 历史路径（**已弃，仅存 `refs/` 参考**）：`refs/alt-build-dtb.sh` + `refs/alt-rk3588-hlink*.dts`
-  是"在社区内核树里编树内 hlink DTS"的替代方案。它虽然能编出配套 DTB，但基底是社区树而非
-  官方材料，按你的口径不采用。`refs/rk3588-hinlink-h88k-vendor-6.1.dts` 是厂商 6.1 源，仅作对照。
-
-## U-Boot 口径（2026-10-26 校正版，判据是 DDR 不是 build 号）
-
-**判据（KF 口径）：u-boot 必须与【本板 DDR 同源】，断 DDR 版本串，不断 build 号。**
-
-- 本仓注入 `uboot/h88k-vendor-first32m.bin`（sha256 `f2e48d08f85a3c71…`，32MiB），
-  来源＝厂商 Ubuntu 24.04 `20260524-ubuntu-24.04-desktop-arm64-hinlink-h88k.img`
-  的前 32MiB：`RKNS@0x8000` + `FIT@0x800000`，`U-Boot 2017.09 (May 23 2026)`，
-  **`ddr-v1.18-9fa84341ce`**（与板上 iNextOS 运行时 cmdline 里的 DDR 版本逐字一致），
-  `boot_targets=nvme0 mmc1 mmc0 mtd2 mtd1 mtd0 usb0 pxe dhcp`。
-- ❌ **反面记录（已删）**：曾用 fnOS 官方 NanoPC-T6 镜像里的 `U-Boot 2026.04-TRIM`
-  当"RK3588 通用件"——它只是 **T6 板的** 件，在 H88K 上起不来（eMMC 实测黑屏）。
-  "同 SoC 就能通用"是错的，K1 仓同一条教训：u-boot 不自编、不跨板借用。
-- ⚠ **不要手改 u-boot 里的 `boot_targets`**：改动落在 FIT 负载内，SPL 会按 hash 校验，
-  不重签必然 `sha256 error!`（KF 已用血的代价记为坑 1）。本仓试过 `fit-resign.py`
-  对这份厂商 FIT，5 个 image 节点全报 MISMATCH（工具与该 FIT 结构不兼容）——
-  **所以引导顺序不动，改用介质选择来控制（见下节）。**
-- 注入只写 `[17408, 32MiB)` 载荷区，镜像自身 GPT 前 17408 字节保留；
-  `verify-image.sh` 硬门禁：RKNS + FIT + 整片 32MiB 逐字节一致 + **含 `ddr-v1.18-9fa84341ce`**。
-
-## 启动介质与引导顺序（2026-10-26 实测定论）
-
-1. **BootROM 只认 eMMC 的 IDB**：把 eMMC 的 `0x8000` 4 字节 `RKNS` 清零后，板子既不进系统、
-   也不落 SD，直接停在 MASKROM 等 USB（实测）→ 别想着"清 IDB 逼它从 SD 起"。
-2. **介质选择发生在 eMMC 里那份 u-boot 的 distro boot**：`boot_targets` 写死在二进制，
-   顺序是 `nvme0 → mmc1(SD) → mmc0(eMMC)` ⇒ **卡在槽里就一定起卡上的系统，eMMC 里的系统
-   一次都不会被尝试**（`/proc/mounts` 里 `/boot` 落在 `mmcblk1p1` 即为实证）。
-   ⇒ 要测 eMMC 上的系统，**那一次卡不能插**；插回卡即回到卡上的系统（安全的退路）。
-3. **写盘后必须把 GPT 备份表搬回盘尾**：镜像 3.86 GiB、eMMC 58.3 GiB，整盘 dd 后主头的
-   `alternate_lba` 仍指向镜像末尾 → u-boot `part_efi.c` 判"分区表损坏" → 一个分区都读不到
-   （内核只警告、照常能读，所以"dd 校验通过但刷完起不来"）。用
-   `tools/fix-gpt-backup.py <盘\|镜像>` 就地修（只动 LBA1 + 盘尾 33 扇区，CRC 重算并回读断言）。
-   iStoreOS/Armbian 是 MBR，无此问题 —— 这就是"刷 iStoreOS 能起、刷飞牛起不来"的根因。
-4. **引导双路径**：p1 同时保留官方 `boot.scr`（`part uuid` 现场取身份）与本仓新写的
-   `extlinux/extlinux.conf`（xck-nas 口径：`kernel /vmlinuz` + `fdt /dtb/rockchip/…` +
-   `root=PARTUUID=…` + `console=ttyS2,1500000` + `earlycon=…feb50000` + `cma=2G`）。
-   任何一条被 u-boot 选中都能起；extlinux 的好处是内核升级后 `/vmlinuz` 符号链接自动跟随。
-
-## 基镜像
-
-`linyueweia/fnnas-base-images` release `v1.0.0` 的
-`fnnas-official-arm64-image_rockchip.img.gz`（解压 sha256 以 CI 实取值为准；
-本地取证件 `d0f4d40b…`、release 资产 `4ad44904…`，结构相同、字节不同 —— 与 lyw-kf 同一现象）。
-
-布局：GPT，BOOT(ext4) @32MiB / 360MiB，rootfs(btrfs) @408MiB，**前 32MiB 留空**。
-内核 `6.18.18.c951-trim`（全系通用），驱动面已核实：
-`STMMAC_ETH=m / DWMAC_ROCKCHIP=m / R8169=m(覆盖 RTL8125) / REALTEK_PHY=y /
-PCIE_ROCKCHIP=y / BLK_DEV_NVME=y / MFD_RK8XX_SPI=y / DW_WATCHDOG=y`。
-
-## 构建
-
-```bash
-# CI（推荐）：push 到 main 或 Actions → Build fnOS HINLINK H88K Image → Run workflow
-# 产物: artifact fnos-hinlink-h88k-<n> / release fnos_hinlink-h88k_<n>
-#        fnos_Mainland-PE_arm_12_HINLINK-H88K.img.xz + SHA256SUMS
-
-# 本地（Linux）:
-bash tools/verify-dtb.sh                       # DTB 门禁
-sudo BASE=fnnas-base.img DTB=dist/rk3588-hinlink-h88k.dtb UBOOT=uboot/h88k-first32m.bin bash build-h88k-fnos.sh
-sudo DTB=dist/rk3588-hinlink-h88k.dtb bash tools/verify-image.sh out/*.img
-```
-
-## 刷写与验收
-
-**写盘三步，缺一不可**：
-
-```bash
-# 1) 整盘写（MASKROM/RKDevTool 分段写，或从另一个系统 dd）
-#    注意：RKDevTool「下载镜像」页对 >2GB 的单文件会 32 位长度溢出 → 按 1.75GiB 分段
-# 2) 把 GPT 备份表搬回盘尾（否则 u-boot 判分区表损坏，刷完起不来）
-sudo python3 tools/fix-gpt-backup.py /dev/mmcblk0
-# 3) 确认引导路径
-sudo mount /dev/mmcblk0p1 /mnt/boot
-cat /mnt/boot/extlinux/extlinux.conf       # extlinux 路径
-cat /mnt/boot/fnEnv.txt                    # 官方 boot.scr 路径
-```
-
-上机验收：
-
-```bash
-grep -o 'cma=[0-9]*[MG]' /proc/cmdline        # 期望 cma=2G
-cat /proc/device-tree/model                   # HINLINK H88K
-ethtool eth2 | grep -E 'Speed|Link'            # 千兆口（RTL8211F）协商正常
-lspci -nn | grep -i ethernet                   # 两块 10ec:8125（2.5G）
-ls /sys/class/leds/                            # blue:net green:user amber:sata red:work
-poweroff                                       # 关机后指示灯全灭 = PMIC 断电生效
-```
+引导链（官方那一条，不要自造）：
+`bootflow scan -lb` → p1 `/boot.scr` → 读 `fnEnv.txt` → `load` 内核与 `dtb/${fdtfile}` → `booti`。
 
 ## 目录
 
 ```
-build-h88k-fnos.sh                  装配脚本（只碰镜像文件，绝不写 /dev 节点）
-dts/rk3588-hinlink-h88k.dts         最终 DTS 源（反编译，供 dtc 重编译校验）
-dist/rk3588-hinlink-h88k.dtb        最终 DTB 成品（pyfdt 从底本改造，270281 B）
-refs/rk3588-hinlink-h88k-live-inextos.dtb   厂商实机底本（金标准存档）
-tools/make-final-dtb.py             DTB 可复现生成器（重生 + 断言）
-tools/verify-dtb.sh                 DTB 门禁（dtc 编译 + 金标准 + 差异面 ≤8 行）
-tools/verify-image.sh               镜像自证（硬门禁）
-.github/workflows/build-fnos-hinlink-h88k.yml
+dts/
+  rk3588-hlink.dtsi        板级公共 dtsi（厂商 DTS 来源 + PMIC 断电属性 + PCIe 复位/PHY）
+  rk3588-hlink-h88k.dts    板级入口（model/compatible + #include 两个 dtsi）
+  t6-align.dtsi            与官方 T6 DTB 逐节点对齐的开/关项（GPU/VOP/HDMI 开、NPU 关…）
+  memory-banks.json        内存布局数据源（板上采集，构建时生成 memory-banks.dtsi）
+build-dtb.sh               在飞牛内核树里编 DTB（CI 用）
+build-h88k-fnos.sh         装配镜像：官方母本 + 三件 + GPT 收尾
+tools/
+  capture-memory.sh        在实机上从 /proc/device-tree/memory/reg 采集内存布局 → JSON
+  gen-memory-dtsi.py       JSON → memory-banks.dtsi（构建时生成，不入库）
+  verify-h88k-dts.sh       DTB 硬门禁（内存/PMIC/iommu/PCIe/combphy/多媒体/LED/gmac）
+  verify-image.sh          镜像自证（分区/DTB/fnEnv/引导链/u-boot 载荷/GPT/rootfs）
+  fix-gpt-backup.py        把 3.6G 镜像写进更大 eMMC 时把 GPT 备份表搬到盘尾
+uboot/                    本板 u-boot 前 32MiB 载荷 + SHA256SUMS（只留实机验证那份）
+assets/h88k/              运行时修复件：board.json（LED）、fnEnv.txt、MAC 固定脚本与 unit
+refs/                     对照基线 DTB：官方 T6 / iStoreOS / iNextOS 实跑，以及厂商 6.1 DTS 源
+docs/                     实机踩坑与验收记录
 ```
 
-## 回滚
+## 用法
 
-原系统不受影响（本仓从不碰设备）；刷回 = 用原 iNextOS/原厂镜像重刷。
-fnEnv.txt 单独回滚：删 `fdtfile=`/`extraargs=` 两行即回基镜像默认（cma=256M）。
+```bash
+# 1) 编 DTB（CI 里也这么跑）
+bash build-dtb.sh                     # 产物 dist/rk3588-hlink-h88k.dtb
+
+# 2) 装配镜像（BASE 用官方 T6 母本）
+BASE=/path/fnos_official_arm64.img \
+DTB=dist/rk3588-hlink-h88k.dtb \
+UBOOT=uboot/h88k-istoreos2025-first32m.bin \
+OUT_DIR=out bash build-h88k-fnos.sh
+
+# 3) 自证
+sudo -E DTB=dist/rk3588-hlink-h88k.dtb \
+     UBOOT=uboot/h88k-istoreos2025-first32m.bin \
+     bash tools/verify-image.sh out/fnos_Mainland-PE_arm_12_HINLINK-H88K.img
+```
+
+## CI
+
+- `Build DTB only`（`.github/workflows/build-dtb.yml`）：编 DTB + 全套硬门禁 + 上传产物
+- `Build fnOS HINLINK H88K Image`：拉官方母本 → 装配 → 自证 → 发 release
+
+## 已知边界（不是 DTB 能解决的）
+
+官方内核对 **GPU/NPU/VPU** 没有 RK3588 的驱动：`mali.ko` 只匹配 Mali-400/450，
+`rk_vcodec.ko` 只匹配 `vpu-decoder-v1/v2`，`rga3.ko` 只认 `rga2/rga3`，config 里也没有
+`DRM_PANTHOR/PANFROST`。DTB 已按官方 T6 逐节点一致，但硬件能力用不上。要真用得重编内核。
+
+## 关键坑（详见 docs）
+
+1. DTB 缺 `/memory` → 内核 0 字节 RAM，`booti` 后静默死亡（无串口无 HDMI 无日志）
+2. `/ethernet@fe1b0000` 不能带 `label`（stmmac 撞名 `-17`，千兆口整个消失、地址乱漂）
+3. 第二个 2.5G 要显式启用 `pcie@fe190000` + `combphy0_ps`（reset `<&gpio4 RK_PA5>`）
+4. 三块网卡都没有出厂 MAC → 按 SoC 序列号 + 设备路径派生固定 MAC
+5. 3.6G 镜像写进 58G eMMC 必须把 GPT 备份表搬到盘尾
+6. 不要加 extlinux、不要塞 initrd —— 官方链路只有 `boot.scr → fnEnv`

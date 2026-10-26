@@ -1,7 +1,0 @@
-# H88K 网口身份钉死（按设备路径，不看内核探测顺序）
-# 口序与 iNextOS/iStoreOS 一致：eth0=0004:41(2.5G) eth1=0003:31(2.5G) eth2=GMAC(1G)
-[Match]
-Path=pci-0004:41:00.0
-
-[Link]
-Name=eth0
