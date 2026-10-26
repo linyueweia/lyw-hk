@@ -96,7 +96,7 @@ if ub and os.path.exists(ub):
     a = hashlib.sha256(d[17408:]).hexdigest()
     b = hashlib.sha256(u[17408:]).hexdigest()
     assert a == b, "注入模式：整片 [17408,32MiB) 载荷与 uboot/ 提取件不一致"
-    assert b'U-Boot 2026.04-TRIM' in d, "注入的 u-boot 不是飞牛 RK3588 通用件", "注入的 u-boot 不是飞牛 RK3588 通用件"
+    assert b'U-Boot 2026.04-TRIM' in d, "注入的 u-boot 不是飞牛 RK3588 通用件"
     print("  ✓ 飞牛 RK3588 通用 U-Boot 已注入（RKNS+FIT，[17408,32MiB) 与提取件逐字节一致）")
 else:
     assert nz == 0, f"既无注入件前导区又非全零（非零 {nz} B）——两头都不占"
