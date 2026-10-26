@@ -4,9 +4,9 @@
 # 方案 = lyw-kf（KICKPI K1）同款，按 H88K 裁剪：
 #   · 不注入 u-boot（H88K 现有厂商 u-boot 走 distro boot，用户口径：U-Boot 不动）
 #   · 不注入树外模块（基镜像内核 6.18.18.c951-trim 已带 STMMAC/R8169/REALTEK_PHY/NVME）
-#   · 三件事：就地适配官方 DTB（tools/adapt-official-dtb.py）、fnEnv（fdtfile + cma=2G）、
-#     extlinux.conf（xck-nas 口径双路径）、board.json
-#   · 硬门禁：u-boot DDR 同源 + 整片 32MiB 逐字节 + DTB iommu 适配 ×21/无 v2 + extlinux 七项
+#   · 三件事：就地适配官方 DTB（tools/adapt-official-dtb.py）、fnEnv（fdtfile + cma=256M，官方口径）、
+#     （不生成 extlinux，官方只走 boot.scr → fnEnv）、board.json
+#   · 硬门禁：u-boot DDR 同源 + 整片 32MiB 逐字节 + DTB iommu 适配 ×21/无 v2 + 引导链/多媒体/内存节点
 #   · 镜像自证不过就不出产物
 #==========================================================================
 name: Build fnOS HINLINK H88K Image
@@ -127,7 +127,7 @@ jobs:
           set -e
           sudo -E BASE=base/fnnas-base.img \
                   DTB=dist/rk3588-hlink-h88k.dtb \
-                  UBOOT=uboot/h88k-vendor-first32m.bin \
+                  UBOOT=uboot/h88k-istoreos2025-first32m.bin \
                   BUILD_NUM="${{ github.run_number }}" \
                   OUT_DIR=out \
                   bash build-h88k-fnos.sh
@@ -137,7 +137,7 @@ jobs:
         run: |
           set -e
           IMG="$(ls out/*.img | head -1)"
-          sudo -E DTB=dist/rk3588-hlink-h88k.dtb UBOOT=uboot/h88k-vendor-first32m.bin bash tools/verify-image.sh "$IMG"
+          sudo -E DTB=dist/rk3588-hlink-h88k.dtb UBOOT=uboot/h88k-istoreos2025-first32m.bin bash tools/verify-image.sh "$IMG"
 
       - name: Show outputs
         run: |

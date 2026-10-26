@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 #==========================================================================
-# lyw-hk 镜像自证（装配完成后跑，硬门禁 —— 不过就不出产物）
-#   用法: sudo bash tools/verify-image.sh out/fnos_Mainland-PE_arm_12_HINLINK-H88K.img
-# 断言面 = 本仓库改动项（DTB / fnEnv / board.json / 引导链完整性 / 无串盘隐患）
+# H88K fnOS 镜像自证（硬门禁）—— 断言"实机验证通过的配方"各项
+#
+# 用法: sudo -E DTB=dist/rk3588-hlink-h88k.dtb \
+#        UBOOT=uboot/h88k-istoreos2025-first32m.bin \
+#        bash tools/verify-image.sh <镜像.img>
+#
+# 原则：只断言"配方本身"，不写任何与配方矛盾的检查（旧版曾同时要求
+# extlinux 存在与不存在、cma=2G 与禁止 256M、只认 T6 的 2026.04 却又注入
+# 2017.09 —— 结果必然永远失败）。
+#==========================================================================
 set -euo pipefail
-fail() { echo "✗ $*" >&2; exit 1; }
-ok()   { echo "  ✓ $*"; }
 
-IMG="${1:?用法: verify-image.sh <img>}"
-[[ -f "$IMG" ]] || fail "镜像不存在: $IMG"
-command -v dtc >/dev/null || fail "需要 device-tree-compiler"
-
-PASS=0
+IMG="${1:?用法: verify-image.sh <镜像.img>}"
+DTB="${DTB:-dist/rk3588-hlink-h88k.dtb}"
+UBOOT="${UBOOT:-}"
 TMP="$(mktemp -d)"
 LOOP=""
+FAILED=0
+
+fail() { echo "  ✗ $*" >&2; FAILED=1; }
+ok()   { echo "  ✓ $*"; }
 cleanup() {
     mountpoint -q "$TMP/boot" 2>/dev/null && umount "$TMP/boot" 2>/dev/null || true
     mountpoint -q "$TMP/root" 2>/dev/null && umount "$TMP/root" 2>/dev/null || true
@@ -22,130 +29,164 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==== 镜像自证: $(basename "$IMG") ===="
+echo "==== 镜像自证: $(basename "$IMG") ($(stat -c%s "$IMG") B) ===="
+
 LOOP="$(losetup -fP --show "$IMG")"
 sleep 1
 mkdir -p "$TMP/boot" "$TMP/root"
-mount "${LOOP}p1" "$TMP/boot" || fail "挂载 BOOT 失败"
-mount "${LOOP}p2" "$TMP/root" || fail "挂载 rootfs 失败"
+mount "${LOOP}p1" "$TMP/boot" || { fail "挂载 BOOT 失败"; exit 1; }
+mount "${LOOP}p2" "$TMP/root" || { fail "挂载 rootfs 失败"; exit 1; }
 
 echo
-echo "── 1) DTB 在位（官方自带 + 就地适配）──"
+echo "── 1) 分区与文件系统 ──"
+P1FS="$(lsblk -no FSTYPE "${LOOP}p1")"; P2FS="$(lsblk -no FSTYPE "${LOOP}p2")"
+[[ "$P1FS" == "ext4"  ]] && ok "p1 = ext4（官方布局）" || fail "p1 应为 ext4，实际 $P1FS"
+[[ "$P2FS" == "btrfs" ]] && ok "p2 = btrfs（官方布局）" || fail "p2 应为 btrfs，实际 $P2FS"
+
+echo
+echo "── 2) 板级 DTB ──"
 F="$TMP/boot/dtb/rockchip/rk3588-hlink-h88k.dtb"
-[[ -f "$F" ]] || fail "镜像缺 dtb/rockchip/rk3588-hlink-h88k.dtb"
-ok "DTB = 基镜像官方 $((stat -c%s "$F")) B，sha256 $(sha256sum "$F" | awk '{print substr($1,1,16)}')…"
+[[ -f "$F" ]] || fail "缺 dtb/rockchip/rk3588-hlink-h88k.dtb"
+if [[ -f "$DTB" ]]; then
+    [[ "$(sha256sum "$F" | awk '{print $1}')" == "$(sha256sum "$DTB" | awk '{print $1}')" ]] \
+        && ok "镜像内 DTB 与传入 DTB 逐字节一致（sha256 $(sha256sum "$F" | cut -c1-16)…）" \
+        || fail "镜像内 DTB 与传入 DTB 不一致"
+fi
+MODEL="$(fdtget -t s "$F" / model)"
+[[ "$MODEL" == *H88K* ]] && ok "model = $MODEL" || fail "model 不符: $MODEL"
+fdtget -t s "$F" / compatible | grep -qi h88k && ok "compatible 含 h88k" || fail "compatible 不含 h88k"
 
 echo
-echo "── 2) DTB 关键属性（金标准）──"
+echo "── 3) 内存节点（缺了内核 0 字节 RAM，booti 后静默死亡）──"
+python3 - "$F" dts/memory-banks.json <<'PY'
+import json, subprocess, sys
+dtb, jf = sys.argv[1], sys.argv[2]
+d = json.load(open(jf, encoding='utf-8'))
+banks = sorted(d['banks'], key=lambda x: x['base'])
+node = '/memory@%x' % banks[0]['base']
+st = subprocess.run(['fdtget', '-t', 's', dtb, node, 'device_type'], capture_output=True, text=True)
+if st.stdout.strip() != 'memory':
+    sys.exit(f"✗ 缺 {node}（device_type=memory）")
+reg = subprocess.run(['fdtget', '-t', 'x', dtb, node, 'reg'], capture_output=True, text=True)
+got = [int(x, 16) for x in reg.stdout.split()]
+want = []
+for b in banks:
+    for v in (b['base'], b['size']):
+        want += [(v >> 32) & 0xFFFFFFFF, v & 0xFFFFFFFF]
+if got != want:
+    sys.exit(f"✗ memory reg 与 dts/memory-banks.json 不一致\n   DTB={got}\n   JSON={want}")
+print(f"  ✓ memory {len(banks)} banks / {sum(b['size'] for b in banks)/1024**3:.3f} GiB，与数据源一致")
+PY
+
+echo
+echo "── 4) DTB 关键属性 ──"
 dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null
-MODEL="$(fdtget -t s "$F" / model)"
-[[ "$MODEL" == "Hlink H88K" || "$MODEL" == "HINLINK H88K" ]] || fail "model 不符: $MODEL"
-ok "model = $MODEL"
-[[ "$(fdtget -t s "$F" / compatible)" == *h88k* ]] || fail "compatible 不符"
-ok "compatible 含 h88k"
-# 树里 iommu 是双值兼容串（rk3588-iommu, rk3568-iommu），按字符串计数，不绑属性行格式
 N_IOMMU="$(grep -o 'rockchip,rk3588-iommu' "$TMP/in.dts" | wc -l | tr -d ' ')"
-[[ "${N_IOMMU:-0}" -ge 10 ]] || fail "iommu 不是飞牛树的 rk3588-iommu（仅 ${N_IOMMU:-0} 处）"
 N_V2="$(grep -o 'rockchip,iommu-v2' "$TMP/in.dts" | wc -l | tr -d ' ')"
-[[ "${N_V2:-0}" -eq 0 ]] || fail "DTB 仍有 rockchip,iommu-v2（${N_V2:-0} 处）"
-ok "IOMMU = 飞牛内核树命名 rockchip,rk3588-iommu ×$N_IOMMU（iommu-v2 残留 0）"
-[[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] || fail "gmac0 phy-mode 不符"
-[[ "$(fdtget -t i "$F" /ethernet@fe1b0000 tx_delay)" == "68" ]] || fail "gmac0 tx_delay 不符"
-ok "gmac0 rgmii-rxid + tx_delay=68(0x44)"
+[[ "${N_IOMMU:-0}" -ge 10 ]] && ok "iommu = rockchip,rk3588-iommu ×$N_IOMMU" || fail "iommu 不是官方内核认的命名（仅 ${N_IOMMU:-0}）"
+[[ "${N_V2:-0}" -eq 0 ]] && ok "无 rockchip,iommu-v2 残留" || fail "仍有 rockchip,iommu-v2 ×${N_V2}"
+LBL="$(fdtget -t s "$F" /ethernet@fe1b0000 label 2>/dev/null || true)"
+[[ -z "$LBL" ]] && ok "gmac 无 label（否则 stmmac 撞名 -17，千兆口消失）" || fail "gmac 带 label='$LBL'"
+[[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] && ok "gmac phy-mode=rgmii-rxid" || fail "gmac phy-mode 不符"
+[[ "$(fdtget -t i "$F" /ethernet@fe1b0000 tx_delay)" == "68" ]] && ok "gmac tx_delay=0x44" || fail "gmac tx_delay 不符"
 for e in "net blue:net" "sata amber:sata" "user green:user" "work red:work"; do
     set -- $e
     [[ "$(fdtget -t s "$F" "/leds/$1" label)" == "$2" ]] || fail "LED $1 应为 $2"
 done
-ok "LED 四灯命名 = blue:net/amber:sata/green:user/red:work"
-grep -q 'rockchip,system-power-controller' "$TMP/in.dts" || fail "PMIC 缺 system-power-controller"
-ok "PMIC 带 rockchip,system-power-controller（关机断电）"
-if fdtget "$F" /reserved-memory/cma reg >/dev/null 2>&1; then
-    fail "镜像 DTB 仍带 reserved-memory/cma 固定区"
-fi
-ok "reserved-memory/cma 已删（CMA 交给 cmdline）"
-for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000; do
+ok "LED 四灯 = blue:net / amber:sata / green:user / red:work"
+grep -q 'rockchip,system-power-controller' "$TMP/in.dts" && ok "PMIC 带 system-power-controller" || fail "PMIC 缺断电属性"
+
+echo
+echo "── 5) PCIe / PHY（NVMe + 双 2.5G 前提）──"
+for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000 /pcie@fe190000; do
     [[ "$(fdtget -t s "$F" "$n" status)" == "okay" ]] || fail "$n 应 okay"
 done
-ok "PCIe fe150000/fe170000/fe180000 okay（NVMe + 2.5G×2；fe160000/fe190000 本板无插槽）"
+ok "PCIe fe150000/170000/180000/190000 全 okay"
+for ph in /phy@fee00000 /phy@fee10000 /phy@fee20000; do
+    [[ "$(fdtget -t s "$F" "$ph" status)" == "okay" ]] || fail "$ph 应 okay"
+done
+ok "combphy0_ps/1_ps/2_psu 全 okay"
 
 echo
-echo "── 3) fnEnv.txt（引导参数）──"
-FNENV="$TMP/boot/fnEnv.txt"
-[[ -f "$FNENV" ]] || fail "缺 fnEnv.txt"
-sed 's/^/     /' "$FNENV"
-grep -q '^fdtfile=rockchip/rk3588-hlink-h88k.dtb$' "$FNENV" || fail "fnEnv fdtfile 不符"
-ok "fdtfile=rockchip/rk3588-hlink-h88k.dtb"
-grep -q '^extraargs=.*cma=2G' "$FNENV" || fail "fnEnv extraargs 缺 cma=2G"
-ok "extraargs 含 cma=2G"
-if grep -q '^extraargs=.*cma=256M' "$FNENV"; then
-    fail "fnEnv 仍残留 cma=256M"
-fi
+echo "── 6) 多媒体（与官方 T6 逐节点一致）──"
+for n in /gpu@fb000000 /vop@fdd90000 /hdmi@fde80000 /hdmi@fdea0000; do
+    [[ "$(fdtget -t s "$F" "$n" status)" == "okay" ]] || fail "$n 应 okay（与 T6 一致）"
+done
+ok "GPU / VOP / HDMI0 / HDMI1 均 okay"
+for n in /npu@fdab0000 /npu@fdac0000 /npu@fdad0000 /video-codec@fdc38000 /video-codec@fdc40000 /rga@fdb60000 /rga@fdb70000; do
+    [[ "$(fdtget -t s "$F" "$n" status)" == "disabled" ]] || fail "$n 应 disabled（T6 亦然）"
+done
+ok "NPU 与多余 vdec/rga 均 disabled（与 T6 一致）"
+NV="$(grep -o 'rockchip,rk3588-vpu121' "$TMP/in.dts" | wc -l | tr -d ' ')"
+NE="$(grep -o 'rockchip,rk3588-vepu121' "$TMP/in.dts" | wc -l | tr -d ' ')"
+[[ "${NV:-0}" -ge 1 ]] && [[ "${NE:-0}" -ge 4 ]] && ok "编解码核 vpu121 ×$NV / vepu121 ×$NE" || fail "编解码核数量异常"
 
 echo
-echo "── 3.2) extlinux.conf（xck-nas 口径：与官方 boot.scr 成双路径）──"
-EXTL="$TMP/boot/extlinux/extlinux.conf"
-[[ -f "$EXTL" ]] || fail "缺 extlinux/extlinux.conf"
-sed 's/^/     /' "$EXTL"
-grep -q 'kernel /vmlinuz' "$EXTL" || fail "extlinux.conf 缺 kernel /vmlinuz（内核更新后仍有效）"
-grep -q 'fdt /dtb/rockchip/rk3588-hlink-h88k.dtb' "$EXTL" || fail "extlinux.conf fdt 行不符"
-grep -q 'root=PARTUUID=' "$EXTL" || fail "extlinux.conf root 未用 PARTUUID（换盘/换槽会串根）"
-grep -q 'ubootpart=PARTUUID=' "$EXTL" || fail "extlinux.conf 缺 ubootpart=PARTUUID="
-grep -q 'console=ttyS2,1500000' "$EXTL" || fail "extlinux.conf 缺 console=ttyS2,1500000"
-grep -q 'earlycon=uart8250,mmio32,0xfeb50000' "$EXTL" || fail "extlinux.conf earlycon 不是 RK3588 的 0xfeb50000"
-grep -q 'cma=2G' "$EXTL" || fail "extlinux.conf 缺 cma=2G"
-ok "extlinux.conf 七项断言通过（kernel/fdt/PARTUUID×2/console/earlycon/cma）"
+echo "── 7) fnEnv.txt（官方引导参数入口）──"
+FN="$TMP/boot/fnEnv.txt"
+[[ -f "$FN" ]] || fail "缺 fnEnv.txt"
+sed 's/^/     /' "$FN"
+grep -q '^fdtfile=rockchip/rk3588-hlink-h88k.dtb$' "$FN" && ok "fdtfile=rockchip/rk3588-hlink-h88k.dtb" || fail "fnEnv fdtfile 不符"
+grep -q '^extraargs=.*cma=256M' "$FN" && ok "extraargs 含 cma=256M（官方 T6 取值）" || fail "fnEnv extraargs 缺 cma=256M"
+grep -q '^initrdfile=' "$FN" && fail "fnEnv 不应有 initrdfile（官方无 initrd 启动）" || ok "无 initrdfile（官方就是无 initrd）"
+KER="$(grep '^kernelfile=' "$FN" | cut -d= -f2)"
+[[ -n "$KER" && -f "$TMP/boot/$KER" ]] && ok "kernelfile=$KER 在 p1 中存在" || fail "kernelfile 指向的文件不存在: $KER"
 
 echo
-echo "── 3.5) 前导区 U-Boot（注入件或清零，二选一必须成立）──"
+echo "── 8) 引导链（只允许官方那一条）──"
+[[ -f "$TMP/boot/boot.scr" ]] && ok "boot.scr 在位（官方引导脚本）" || fail "缺 boot.scr"
+grep -qa 'fnEnv' "$TMP/boot/boot.scr" && ok "boot.scr 内部读 fnEnv（官方机制）" || fail "boot.scr 不像官方脚本（未引用 fnEnv）"
+[[ -e "$TMP/boot/extlinux" ]] && fail "不应存在 extlinux/（会抢在官方脚本前）" || ok "无 extlinux/"
+ls "$TMP/boot"/uInitrd* >/dev/null 2>&1 && fail "不应存在 uInitrd（官方无 initrd）" || ok "无 uInitrd"
+
+echo
+echo "── 9) u-boot 载荷 ──"
 python3 - "$IMG" "${UBOOT:-}" <<'PY'
-import sys, hashlib, struct, os
+import hashlib, os, sys, re
 img, ub = sys.argv[1], sys.argv[2]
 d = open(img, 'rb').read(32*1024*1024)
-has_rkns = d[0x8000:0x8004] == b'RKNS'
-has_fit  = d[0x800000:0x800004] == bytes.fromhex('d00dfeed')
-nz = sum(1 for b in d if b)
+assert d[0x8000:0x8004] == b'RKNS', "前导区缺 RKNS（idbloader）"
+assert d[0x800000:0x800004] == bytes.fromhex('d00dfeed'), "前导区缺 FIT（u-boot）"
+ver = re.search(rb'U-Boot 20[0-9]{2}\.[0-9]{2}[^\x00]{0,40}', d)
+bt  = re.search(rb'boot_targets=[^\x00]{0,80}', d)
 if ub and os.path.exists(ub):
     u = open(ub, 'rb').read()
-    assert has_rkns and has_fit, "注入模式：RKNS/FIT 魔数缺失"
-    a = hashlib.sha256(d[17408:]).hexdigest()
-    b = hashlib.sha256(u[17408:]).hexdigest()
-    assert a == b, "注入模式：整片 [17408,32MiB) 载荷与 uboot/ 提取件不一致"
-    assert b'U-Boot 2026.04-TRIM' in d, "注入的 u-boot 不是飞牛 RK3588 通用件"
-    print("  ✓ 飞牛 RK3588 通用 U-Boot 已注入（RKNS+FIT，[17408,32MiB) 与提取件逐字节一致）")
+    assert hashlib.sha256(d[17408:]).hexdigest() == hashlib.sha256(u[17408:]).hexdigest(), \
+        "镜像 [17408,32MiB) 与传入 UBOOT 载荷不一致"
+    print(f"  ✓ 与传入 UBOOT 逐字节一致（{ver.group().decode() if ver else '版本串未找到'}）")
 else:
-    assert nz == 0, f"既无注入件前导区又非全零（非零 {nz} B）——两头都不占"
-    print("  ✓ 前导区全零（未注入 U-Boot，刷写须保留板上现有 U-Boot）")
+    print(f"  ✓ 前导区含 RKNS+FIT（{ver.group().decode() if ver else '版本串未找到'}）")
+print(f"  ✓ boot_targets: {bt.group().decode() if bt else '(未找到)'}")
 PY
-echo
-echo "── 4) 引导链完整性 ──"
-[[ -f "$TMP/boot/boot.scr" ]] || fail "缺 boot.scr"
-ok "boot.scr 在位"
-[[ -f "$TMP/boot/vmlinuz" || -n "$(ls "$TMP/boot"/vmlinuz-* 2>/dev/null)" ]] || fail "缺内核"
-ok "内核在位"
-if [[ -f "$TMP/boot/extlinux/extlinux.conf" ]]; then
-    fail "extlinux.conf 未停用（u-boot 会优先拾取 → 静态 root= 串盘）"
-fi
-ok "无活动 extlinux.conf"
 
 echo
-echo "── 5) board.json ──"
-BJ="$TMP/root/board.json"
+echo "── 10) GPT 自洽 ──"
+python3 - "$IMG" <<'PY'
+import struct, os, sys
+img = sys.argv[1]
+last = os.path.getsize(img)//512 - 1
+f = open(img,'rb')
+f.seek(512); h = f.read(92)
+assert h[:8] == b'EFI PART', "主 GPT 头缺失"
+alt = struct.unpack_from('<Q', h, 32)[0]
+assert alt == last, f"主表 alternate_lba={alt} 应等于镜像末尾 {last}"
+f.seek(last*512); b = f.read(8)
+assert b == b'EFI PART', "镜像末尾缺备份 GPT 头"
+print(f"  ✓ alternate_lba={last}，末尾备份头在位")
+PY
+
+echo
+echo "── 11) rootfs 完整性 ──"
+[[ -d "$TMP/root/usr" && -d "$TMP/root/etc" ]] && ok "rootfs 有 /usr /etc" || fail "rootfs 结构异常"
+BJ="$TMP/boot/board.json"
 if [[ -f "$BJ" ]]; then
-    sed 's/^/     /' "$BJ"
-    grep -q 'hlink,h88k' "$BJ" || fail "board.json 未指向 hlink,h88k"
-    ok "board.json = hlink,h88k"
-else
-    echo "  ⚠ 无 board.json（基镜像若无则跳过）"
+    grep -q 'hlink,h88k' "$BJ" && ok "board.json = hlink,h88k" || fail "board.json 未指向 hlink,h88k"
+    grep -q 'blue:net' "$BJ" && ok "board.json 含 LED 映射 blue:net" || echo "  ⚠ board.json 无 LED 映射（不致命）"
 fi
 
 echo
-echo "── 6) 分区与根文件系统健康 ──"
-ROOT_UUID="$(lsblk -no UUID "${LOOP}p2" | tr -d ' ')"
-[[ -n "$ROOT_UUID" ]] || fail "rootfs 无 UUID"
-ok "rootfs UUID = $ROOT_UUID（fstab 按 UUID 引导）"
-btrfs check -n --clear-cache "${LOOP}p2" >/dev/null 2>&1 || true
-[[ -d "$TMP/root/usr" && -d "$TMP/root/etc" ]] || fail "rootfs 结构异常（缺 /usr 或 /etc）"
-ok "rootfs 结构正常"
-
-echo
+if [[ "$FAILED" -ne 0 ]]; then
+    echo "== 镜像自证失败 ==" >&2
+    exit 1
+fi
 echo "== 镜像自证全部通过 =="
