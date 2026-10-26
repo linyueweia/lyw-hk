@@ -14,7 +14,7 @@ set -euo pipefail
 fail() { echo "✗ $*" >&2; exit 1; }
 ok()   { echo "  ✓ $*"; }
 
-DTB="${DTB:-dist/rk3588-hinlink-h88k.dtb}"
+DTB="${DTB:-dist/rk3588-hlink-h88k.dtb}"
 [[ -f "$DTB" ]] || fail "缺 $DTB（先跑 bash build-dtb.sh 在飞牛内核树里编译）"
 command -v dtc    >/dev/null || fail "需要 device-tree-compiler (dtc)"
 command -v fdtget >/dev/null || fail "需要 fdtget (device-tree-compiler)"
@@ -25,10 +25,11 @@ echo "  产物: $DTB ($(stat -c%s "$DTB") B)"
 
 echo
 echo "== 1) 板级身份 =="
-[[ "$(fdtget -t s "$DTB" / model 2>/dev/null)" == "HINLINK H88K" ]] || fail "model 不是 HINLINK H88K"
-ok "model = HINLINK H88K"
-fdtget -t s "$DTB" / compatible 2>/dev/null | grep -q 'hinlink,h88k' || fail "compatible 缺 hinlink,h88k"
-ok "compatible 含 hinlink,h88k"
+MODEL="$(fdtget -t s "$DTB" / model 2>/dev/null)"
+[[ "$MODEL" == "Hlink H88K" || "$MODEL" == "HINLINK H88K" ]] || fail "model 不是 Hlink H88K（实际 $MODEL）"
+ok "model = $MODEL"
+fdtget -t s "$DTB" / compatible 2>/dev/null | grep -qE 'hlink,h88k' || fail "compatible 缺 hlink,h88k"
+ok "compatible 含 hlink,h88k"
 
 echo
 echo "== 2) 网口（厂商三镜像一致值）=="

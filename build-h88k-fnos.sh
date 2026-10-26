@@ -11,7 +11,7 @@
 #     （STMMAC/DWMAC_ROCKCHIP=m、R8169=m 覆盖 RTL8125、REALTEK_PHY=y、BLK_DEV_NVME=y）。
 #   · 只做三件事：注入本板 DTB、写对 fnEnv.txt（fdtfile + cma=2G）、改 board.json。
 #
-# DTB 金标准：厂商实机 iNextOS 的 /boot/dtb/rockchip/rk3588-hinlink-h88k.dtb
+# DTB 金标准：厂商实机 iNextOS 的 /boot/dtb/rockchip/rk3588-hlink-h88k.dtb
 #   （md5 37193036099ba80b945c792f741afb3e）+ 8 项改造：
 #     ① 删 reserved-memory/cma 固定 256M 区（CMA 改由 cmdline cma=2G 决定，
 #        与 K1 同款 fnOS 内核实机验证路线一致）
@@ -24,7 +24,7 @@
 #   本脚本只对镜像文件操作，绝不写任何 /dev 设备节点。
 #
 # 用法:
-#   BASE=/path/fnnas-base.img  DTB=dist/rk3588-hinlink-h88k.dtb  \
+#   BASE=/path/fnnas-base.img  DTB=dist/rk3588-hlink-h88k.dtb  \
 #   BUILD_NUM=1  OUT_DIR=out  bash build-h88k-fnos.sh
 set -euo pipefail
 
@@ -49,7 +49,7 @@ BUILD_NUM="${BUILD_NUM:-0}"
 [[ -f "$DTB" ]] || fail "DTB 不存在: $DTB"
 
 DTB_NAME="$(basename "$DTB")"
-[[ "$DTB_NAME" == "rk3588-hinlink-h88k.dtb" ]] || fail "DTB 文件名必须是 rk3588-hinlink-h88k.dtb，得到: $DTB_NAME"
+[[ "$DTB_NAME" == "rk3588-hlink-h88k.dtb" ]] || fail "DTB 文件名必须是 rk3588-hlink-h88k.dtb，得到: $DTB_NAME"
 
 IMG_SRC_SHA="$(sha256sum "$BASE" | awk '{print $1}')"
 DTB_SHA="$(sha256sum "$DTB" | awk '{print $1}')"

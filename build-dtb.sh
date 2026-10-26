@@ -22,9 +22,10 @@ set -euo pipefail
 KERNEL_REPO="${KERNEL_REPO:-https://github.com/unifreq/linux-6.18.y.git}"
 KERNEL_BRANCH="${KERNEL_BRANCH:-main}"
 KERNEL_DIR="${KERNEL_DIR:-kernel}"
-DTS_SRC="${DTS_SRC:-dts/rk3588-hinlink-h88k.dts}"
-DTS_NAME="rk3588-hinlink-h88k.dts"
-OUT="${OUT:-dist/rk3588-hinlink-h88k.dtb}"
+DTS_SRC="${DTS_SRC:-dts/rk3588-hlink-h88k.dts}"
+DTS_NAME="rk3588-hlink-h88k.dts"
+DTSI_SRC="${DTSI_SRC:-dts/rk3588-hlink.dtsi}"
+OUT="${OUT:-dist/rk3588-hlink-h88k.dtb}"
 
 [[ -f "$DTS_SRC" ]] || { echo "✗ 缺 $DTS_SRC"; exit 1; }
 
@@ -39,6 +40,7 @@ echo
 echo "==== 2) 放入板级 DTS 并登记到 Makefile ===="
 DTS_DIR="$KERNEL_DIR/arch/arm64/boot/dts/rockchip"
 cp "$DTS_SRC" "$DTS_DIR/$DTS_NAME"
+cp "$DTSI_SRC" "$DTS_DIR/$(basename "$DTSI_SRC")"   # 板级公共 dtsi（含 PMIC 断电属性改造）
 MK="$DTS_DIR/Makefile"
 DTB_NAME="${DTS_NAME%.dts}.dtb"          # Makefile 里必须是 .dtb，写成 .dts 会静默不编（踩过）
 if grep -q "$DTB_NAME" "$MK"; then

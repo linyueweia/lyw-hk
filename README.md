@@ -8,45 +8,23 @@
 **基镜像 + 厂商金标准 DTB + fnEnv(fdtfile / cma=2G) + board.json**，四步装配；
 U-Boot 不动、不注入任何树外模块。
 
-## DTB 金标准（本仓核心）
+## DTB 适配（2026-10-26 定案：用飞牛内核树自带的板级 DTS）
 
-**先说清来源**：飞牛基镜像的 `dtb/rockchip/` 里本来就有 `rk3588-hinlink-h88k.dtb`
-（sha256 `c2162495acd7e90f…`），而且它与厂商实机 iNextOS 里那份**逐字节相同** ——
-也就是飞牛为这块板直接沿用了厂商 DTB（不是主线骨架）。本仓在此底本上做最小改造：
+**结论先说：这块板在飞牛内核树里已经有官方血统的板级 DTS，不需要移植厂商 6.1 的 DTS。**
 
-最终 DTB `dist/rk3588-hinlink-h88k.dtb` = **厂商实机 iNextOS 的
-`/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb`（md5 `37193036099ba80b945c792f741afb3e`，
-底本存档在 `refs/`）+ 恰好 8 项改造**（7 项板级 + 1 项 IOMMU 命名对齐主线），
-可由 `tools/make-final-dtb.py` 重生（sha256 `0cdc16f5…`）。
-
-三份厂商参考交叉核对（全部一致才敢定稿）：
-
-| 项 | ①厂商板级源码 | ②厂商Ubuntu固件 | ③厂商实机iNextOS | ★最终DTB |
-|---|---|---|---|---|
-| model | HINLINK H88K | HINLINK H88K | HINLINK H88K | HINLINK H88K |
-| gmac0 | rgmii-rxid + tx_delay=0x44 | 同 | 同 | 同 |
-| LED | blue:net/amber:sata/green:user/red:work | （另一套命名，异类） | 同① | 同① |
-| PMIC | rk806(include) | rk806 | rk806 | rk806 |
-| 串口 | serial2:1500000n8 | 同 | 同 | 同 |
-
-仅有的 8 项改造（理由如下）：
-
-1. **删 `/reserved-memory/cma`（固定 256M 区）** —— 用户要求 CMA=2G。
-   保留固定 reg 会把 CMA 压死在 256M；改走 `fnEnv extraargs=cma=2G`，
-   与 K1 同款 fnOS 内核（6.18 trim）实机验证路线一致（K1: cma=1G → CmaTotal=1048576kB）。
-2. **PMIC rk806 加 `rockchip,system-power-controller`** —— 厂商三份都没有，
-   但主线 `drivers/mfd/rk8xx-core.c` 靠它注册 sys_off 断电 handler
-   （`device_property_read_bool` 对 `rockchip,` 前缀与裸名两种写法都认）。
-   不加则 `poweroff` 退化成 halt（PMIC 不断电）。
-3. **全树 `compatible` 由 `rockchip,iommu-v2` 改成 `rockchip,rk3588-iommu`（21 处）** ——
-   厂商 DTB 是配厂商 6.1 内核的写法；本仓内核是主线 6.18，
-   `drivers/iommu/rockchip-iommu.c` 的 match 表只有 `rockchip,rk3588-iommu`，
-   不改则 IOMMU 全部不 probe（VOP/VPU/RGA 走不到 IOMMU）。
-   此项**只影响媒体/显示侧，不挡启动**，且**尚未上机验证** IOMMU 实际工作与否。
-
-其余（gmac0 时序、PCIe、LED GPIO、eMMC、串口…）**一律厂商原样**。
-`phy-mode=rgmii-rxid` 经主线 6.18 `dwmac-rk.c` 源码核实：
-`RGMII_RXID → set_to_rgmii(tx_delay, 0)`，DT 的 `tx_delay=0x44` 生效，与厂商行为一致。
+- 内核树 `unifreq/linux-6.18.y`（飞牛 `6.18.18.cXXX-trim` 的来源树）自带：
+  - `arch/arm64/boot/dts/rockchip/rk3588-hlink.dtsi`（24.7 KB，板级公共部分，作者 Flippy）
+  - `rk3588-hlink-h88k.dts`（基础版）/ `-v3.dts` / `-v31.dts`（H88K V3 / V3.1，31.6 KB 全量）
+- 与实物逐项对上（厂商 DTB 三份交叉核对）：LED `blue:net/amber:sata/green:user/red:work`、
+  `gmac0 phy-mode=rgmii-rxid` + `tx_delay=0x44`、PMIC `rockchip,rk806`、无 cma 固定区、
+  `#include "rk3588.dtsi"` ⇒ SoC 级（iommu/时钟/电源域）天然与飞牛内核同源。
+- 本仓只做 **1 项改造**：`pmic@0` 补 `rockchip,system-power-controller`
+  （主线 rk8xx-core 靠它注册 sys_off handler；不加则 `poweroff` 只 halt 不断电）。
+- 产物名随树内命名：`dist/rk3588-hlink-h88k.dtb`，`model = "Hlink H88K"`、`compatible = "hlink,h88k"`。
+- ⚠ **反面记录（已弃）**：曾用厂商发布镜像里的 `rk3588-hinlink-h88k.dtb`（厂商 6.1 BSP 树编的，
+  SoC 级写 `rockchip,iommu-v2`）去配飞牛 6.18 内核，并手改 21 处字符串救 ——
+  飞牛树里是 `rockchip,rk3588-iommu`（×14，iommu-v2 ×0），这就是"DTB 与内核不配套"的本体。
+  厂商 6.1 DTS 现只存 `refs/rk3588-hinlink-h88k-vendor-6.1.dts` 作对照，不参与构建。
 
 ## U-Boot 口径（2026-10-26 校正版，判据是 DDR 不是 build 号）
 
