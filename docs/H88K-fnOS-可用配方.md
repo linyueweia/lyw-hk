@@ -129,3 +129,17 @@ config         DRM_PANTHOR / DRM_PANFROST / MALI_KBASE 全部未编入          
 `/var/log/h88k-linkwatch.log`（每 2 秒采样、只记变化）显示：修好 MAC 脚本后长时间零变化。
 之前"突然断网"的两次都能对上时间戳：是我在活链路上跑改 MAC 的脚本（改 MAC 必须先 down）。
 脚本现已加保护：`carrier=1` 的活链路一律不碰。
+
+### 5.4 多媒体「与官方 T6 逐节点一致」的最终状态（实机已验证）
+`dts/t6-align.dtsi` 同时包含"开"与"关"两类，产物 `6ea1a6ba…`（197,988 B）已写入 eMMC：
+
+```
+开（与 T6 相同）  gpu@fb000000 / vop@fdd90000 / iommu@fdd97e00 / hdmi@fde80000 / hdmi@fdea0000
+                  video-codec@fdb50000(vpu121) / fdba0000,4000,8000,ac000(vepu121×4) / fdc70000(av1)
+                  rga@fdb80000 / phy@fed60000,70000,80000 / i2s / i2c DDC / hdmi0-sound / hdmi1-sound
+关（T6 也是关/没有）npu@fdab0000,fdac0000,fdad0000 + iommu@fdab9000,fdaca000,fdada000
+                  video-codec@fdc38000,fdc40000（T6 无此两核）  rga@fdb60000,fdb70000（T6 只有 fdb80000）
+```
+
+CI 门禁已固化这组断言（GPU/VOP/HDMI 必须 okay；NPU 与多余 vdec/rga 必须 disabled；
+vpu121≥1、vepu121≥4）。注意：这只是 DT 层一致，驱动层仍不匹配 RK3588（见 5.2）。
