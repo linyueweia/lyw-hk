@@ -117,22 +117,24 @@ PY
     ok "rk3588-iommu ×$N_NEW，iommu-v2 残留 0"
 
     echo "-- 7) PCIe / PHY（NVMe + 双 2.5G 的前提）--"
-    # 本板 dtsi 实际启用：pcie3x4(fe150000) + pcie2x1l0(fe170000) + pcie2x1l1(fe180000)
-    # fe160000/fe190000 树内保持 disabled（无对应插槽），不断言 okay
-    for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000; do
+    # 本板实际启用（判据＝本板 iNextOS 实跑 DTB，不是推断）：
+    #   fe150000 pcie3x4 → NVMe        fe170000 pcie2x1l0 → M.2
+    #   fe180000 pcie2x1l1 → RTL8125 #1(gpio4_2 复位)
+    #   fe190000 pcie2x1l2 → RTL8125 #2(gpio4_5 复位，PCI 域 0004:41，phy=combphy0_ps)
+    #   fe160000 pcie3x2 本板无 → 保持 disabled
+    for n in /pcie@fe150000 /pcie@fe170000 /pcie@fe180000 /pcie@fe190000; do
         st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
-        [[ "$st" == "okay" ]] || fail "$n 应为 okay（实际 '${st:-缺失}'）"
+        [[ "$st" == "okay" ]] || fail "$n 应为 okay（实际 '${st:-缺失}'）—— 少一个就丢一个网口/NVMe"
     done
-    ok "PCIe fe150000(pcie3x4) + fe170000 + fe180000 全 okay"
-    for n in /pcie@fe160000 /pcie@fe190000; do
-        st="$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)"
-        echo "     $n = ${st:-未定义}（本板无此插槽，保持 disabled 属正常）"
-    done
-    for ph in /phy@fee10000 /phy@fee20000; do   # combphy1_ps / combphy2_psu（base dtsi 实际地址）
+    ok "PCIe fe150000 + fe170000 + fe180000 + fe190000 全 okay（NVMe + M.2 + 双 2.5G）"
+    for ph in /phy@fee00000 /phy@fee10000 /phy@fee20000; do
         st="$(fdtget -t s "$DTB" "$ph" status 2>/dev/null || true)"
-        [[ "$st" == "okay" ]] || fail "$ph 应为 okay（combphy）"
+        [[ "$st" == "okay" ]] || fail "$ph 应为 okay（combphy0_ps/1_ps/2_psu）"
     done
-    ok "combphy1_ps / combphy2_psu okay"
+    ok "combphy0_ps / combphy1_ps / combphy2_psu 全 okay"
+    # 第二块 RTL8125 的复位脚必须在，否则链路起不来（物理口有、驱动认不到）
+    RG="$(fdtget -t x "$DTB" /pcie@fe190000 reset-gpios 2>/dev/null || true)"
+    [[ -n "$RG" ]] || fail "/pcie@fe190000 缺 reset-gpios（第二块 RTL8125 不会上电复位）"
 
     echo "-- 8) 板载 SATA / 其它外设 --"
     grep -q 'sata@' "$TMP" || fail "缺 SATA 节点"

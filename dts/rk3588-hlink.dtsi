@@ -499,6 +499,22 @@
 	};
 };
 
+/*
+ * 第二个 RTL8125B 2.5G 以太网（本板双 2.5G 的另一口，实机 PCI 0004:41）
+ * phy 为 combphy0_ps；判据取自本板 iNextOS 实跑 DTB：
+ *   pcie@fe190000 status=okay、reset-gpios=<&gpio4 RK_PA5 GPIO_ACTIVE_HIGH>、phy@fee00000 okay
+ */
+&pcie2x1l2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie2_2_rst>;
+	reset-gpios = <&gpio4 RK_PA5 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+};
+
+&combphy0_ps {
+	status = "okay";
+};
+
 &pcie30phy {
 	status = "okay";
 };
@@ -595,6 +611,11 @@
 
 		pcie2_1_rst: pcie2-1-rst {
 			rockchip,pins = <4 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		/* 第二个 RTL8125B（pcie2x1l2 / PCI 域 4）复位脚，取自本板实跑 DTB */
+		pcie2_2_rst: pcie2-2-rst {
+			rockchip,pins = <4 RK_PA5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 

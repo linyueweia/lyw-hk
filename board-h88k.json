@@ -1,0 +1,18 @@
+{
+  "model": {
+    "id": "hinlink,h88k-v3",
+    "name": "HINLINK H88K V3"
+  },
+  "led": [
+    {
+      "name": "POWER-LED",
+      "sysfs": "blue:net",
+      "trigger": "default-on"
+    },
+    {
+      "name": "DISK-LED",
+      "sysfs": "amber:sata",
+      "trigger": "disk-activity"
+    }
+  ]
+}
