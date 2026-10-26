@@ -153,10 +153,18 @@ jobs:
           tag_name: fnos_hinlink-h88k_${{ github.run_number }}
           name: fnOS HINLINK H88K #${{ github.run_number }}
           body: |
-            为 HINLINK H88K (RK3588) 构建的飞牛 fnOS ARM64 镜像。
-            DTB = 厂商实机 iNextOS 金标准底本 + 7 行改造（删 cma 固定区 / 加 PMIC 断电属性）。
-            CMA=2G（fnEnv extraargs）。U-Boot 不动（沿用板上现有引导件，distro boot）。
-            DTB 门禁 + 镜像自证均已通过。
+            为 HINLINK H88K (RK3588) 构建的飞牛 fnOS ARM64 镜像（整盘 raw 镜像，写 eMMC）。
+
+            - U-Boot：飞牛官方 RK3588 通用件（U-Boot 2026.04-TRIM，RKNS@0x8000 + FIT@0x800000，
+              boot_targets 含 mmc1/SD），注入 [17408,32MiB)；板上原 2017.09_armbian 件已弃用
+              （在 H88K 上 mmc dev 1 初始化必失败）。
+            - DTB：厂商实机 iNextOS 金标准底本 + 8 项改造（删 cma 固定区 / 加 PMIC 断电属性 /
+              rockchip,iommu-v2 → rockchip,rk3588-iommu 21 处对齐主线 6.18）。
+            - CMA=2G（fnEnv extraargs），DTB 门禁 + 镜像自证（整片 32MiB 逐字节）均通过。
+
+            ⚠ 启动介质：**本板只能从 eMMC 启动**。刷进 TF 卡不会引导（BootROM 优先 eMMC，
+            且 eMMC 里的 u-boot 初始化不了 SD 槽——实测 mmc dev 1 连续 4 次全失败）。
+            整盘 dd 到 eMMC，或在 MASKROM 下按地址分段写。
           files: |
             out/*.img.xz
             out/SHA256SUMS
