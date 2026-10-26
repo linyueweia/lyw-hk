@@ -138,8 +138,12 @@ ver = re.search(rb'U-Boot 20[0-9]{2}\.[0-9]{2}[^\x00]{0,40}', d)
 bt  = re.search(rb'boot_targets=[^\x00]{0,80}', d)
 if ub and os.path.exists(ub):
     u = open(ub, 'rb').read()
-    assert hashlib.sha256(d[17408:]).hexdigest() == hashlib.sha256(u[17408:]).hexdigest(), \
-        "镜像 [17408,32MiB) 与传入 UBOOT 载荷不一致"
+    # UBOOT 是"从源镜像 17408 起"的裁切件（长度 ≤ 32MiB-17408），构建时整段写在 17408 处，
+    # 所以这里比的是 image[17408:17408+len(u)] == u（曾经误写成 u[17408:] → 必然不等）
+    seg = d[17408:17408 + len(u)]
+    assert len(seg) == len(u), f"镜像载荷区不足：{len(seg)} < {len(u)}"
+    assert seg == u, f"镜像 [17408,17408+{len(u)}) 与传入 UBOOT 不一致"
+    print(f"  ✓ 与传入 UBOOT 逐字节一致（{len(u)} B）"
     print(f"  ✓ 与传入 UBOOT 逐字节一致（{ver.group().decode() if ver else '版本串未找到'}）")
 else:
     print(f"  ✓ 前导区含 RKNS+FIT（{ver.group().decode() if ver else '版本串未找到'}）")
