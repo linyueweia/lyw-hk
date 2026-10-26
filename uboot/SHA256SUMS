@@ -1,5 +1,1 @@
-53049942072ff5effb0a9f902581f8dce2f87c8a466a91b2f7037faa52e30d15  h88k-first32m.bin
-3da987bec0e4d39ab4d1d7390d9affdea4ad3c4df864b6bba2c1f9b66c9fc62c  h88k-first32m.bin[17408:]（注入载荷区）
-来源: H88K 实机 /dev/mmcblk0 前32MiB 只读提取（192.168.10.22, 2026-10-26）
-板上身份: RKNS@0x8000 + FIT@0x800000, ddr-v1.18-9fa84341ce, U-Boot 2017.09_armbian (Oct 17 2026)
-注入规则: 只写镜像 [17408, 32MiB) 载荷区，镜像自身 GPT 前17408 字节保留
+44d026b54ce6d8f1f93612bee5a1ee74f427c0a701174f03d011bcb64faa295a  fnos-rk3588-first32m.bin

@@ -86,17 +86,18 @@ echo "── 3.5) 前导区 U-Boot（注入件或清零，二选一必须成立�
 python3 - "$IMG" "${UBOOT:-}" <<'PY'
 import sys, hashlib, struct, os
 img, ub = sys.argv[1], sys.argv[2]
-d = open(img, 'rb').read(0x800010)
+d = open(img, 'rb').read(32*1024*1024)
 has_rkns = d[0x8000:0x8004] == b'RKNS'
 has_fit  = d[0x800000:0x800004] == bytes.fromhex('d00dfeed')
-nz = sum(1 for b in open(img, 'rb').read(32*1024*1024) if b)
+nz = sum(1 for b in d if b)
 if ub and os.path.exists(ub):
     u = open(ub, 'rb').read()
     assert has_rkns and has_fit, "注入模式：RKNS/FIT 魔数缺失"
     a = hashlib.sha256(d[17408:]).hexdigest()
-    b = hashlib.sha256(u[17408:0x800010]).hexdigest()
-    assert a == b, "注入模式：载荷区与 uboot/ 提取件不一致"
-    print("  ✓ 本板 U-Boot 已注入（RKNS+FIT，载荷与提取件一致）")
+    b = hashlib.sha256(u[17408:]).hexdigest()
+    assert a == b, "注入模式：整片 [17408,32MiB) 载荷与 uboot/ 提取件不一致"
+    assert b'U-Boot 2026.04-TRIM' in d[:0x800010], "注入的 u-boot 不是飞牛 RK3588 通用件"
+    print("  ✓ 飞牛 RK3588 通用 U-Boot 已注入（RKNS+FIT，[17408,32MiB) 与提取件逐字节一致）")
 else:
     assert nz == 0, f"既无注入件前导区又非全零（非零 {nz} B）——两头都不占"
     print("  ✓ 前导区全零（未注入 U-Boot，刷写须保留板上现有 U-Boot）")

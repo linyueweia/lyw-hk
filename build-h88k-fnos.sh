@@ -86,6 +86,11 @@ d = open(img,'rb').read(0x800000+16)
 u = open(ub,'rb').read()
 assert d[0x8000:0x8004] == b'RKNS', "idbloader 魔数不对"
 assert d[0x800000:0x800004] == bytes.fromhex('d00dfeed'), "FIT 魔数不对"
+# 2026-10-26：u-boot 必须是【飞牛官方 RK3588 通用件】（源：fnOS 官方 NanoPC-T6 镜像 1.2.0701
+# 的前 32MiB，U-Boot 2026.04-TRIM）。板上 eMMC 那份 2017.09 armbian 驱动不了 H88K 的 SD 槽，
+# 用它做 TF 引导时 u-boot 在 mmc dev 1 上必失败（实测 d1none），因此这里硬门禁版本串。
+assert b'U-Boot 2026.04-TRIM' in d[0:0x800010], "注入的 u-boot 不是飞牛 RK3588 通用件（缺 U-Boot 2026.04-TRIM）"
+assert b'boot_targets=usb mmc1 mmc0' in d[0:0x800010], "u-boot 的 boot_targets 不含 mmc1(SD)"
 assert d[512:520] == b'EFI PART', "镜像 GPT 头丢失"
 assert hashlib.sha256(d[17408:0x800000+16]).hexdigest() == hashlib.sha256(u[17408:0x800000+16]).hexdigest(), "载荷与提取件不一致"
 # p1 起始 LBA 必须仍是 65536（32MiB）

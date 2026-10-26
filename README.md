@@ -38,16 +38,21 @@ U-Boot 不动、不注入任何树外模块。
 `phy-mode=rgmii-rxid` 经主线 6.18 `dwmac-rk.c` 源码核实：
 `RGMII_RXID → set_to_rgmii(tx_delay, 0)`，DT 的 `tx_delay=0x44` 生效，与厂商行为一致。
 
-## U-Boot 口径（2026-10-26 定）
+## U-Boot 口径（2026-10-26 修正）
 
-- 基镜像 **v1.1.0 起前导区（0~32MiB）为零**：3568/3588 无法共用一份 U-Boot（实测：v1.0.0 内嵌
-  RK3568 版 ddr-v1.23，整盘刷到 H88K 会砖），飞牛官方也是每板一份，业界同款做法见 ophub/u-boot
-  （按板存库、构建时注入）。
-- 本仓构建传 `UBOOT=uboot/h88k-first32m.bin`（**H88K 实机 eMMC 前 32MiB 只读提取**，
-  sha256 `53049942…`，RKNS@0x8000 + FIT@0x800000 + ddr-v1.18，板上实测能跑的那份），
-  注入只写 `[17408, 32MiB)` 载荷区，镜像自身 GPT 保留 —— 产物整盘 dd 也安全。
-- 刷写不碰板上现有 U-Boot 的场景（分区刷/dd skip）可不注入，`verify-image.sh` 会按
-  "注入 或 前导区全零"二选一断言。
+- **必须用飞牛官方 RK3588 通用 U-Boot**：`uboot/fnos-rk3588-first32m.bin`
+  （sha256 `44d026b54ce6d8f1…`，32MiB），来源＝fnOS 官方 NanoPC-T6 镜像 `1.2.0701`
+  的前 32MiB（`RKNS@0x8000` + `FIT@0x800000`，**U-Boot 2026.04-TRIM**，
+  `boot_targets=usb mmc1 mmc0 nvme scsi pxe dhcp spi`）。
+- **为什么不再用板上 eMMC 提取件**（原 `h88k-first32m.bin` = `U-Boot 2017.09_armbian`）：
+  实测它在 H88K 上**驱动不了 SD 槽** —— `mmc dev 1` 连续 4 次、等待 13 秒全部失败
+  （TF 里 fnOS 因此永远起不来，只能回落 eMMC）。而飞牛官方 2026.04 那份与 K1 同源、
+  带完整 RK3588 SD 支持；iStoreOS 的镜像能在这块板从 TF 启动也正是因为它带的是现代 U-Boot。
+- 基镜像 v1.1.0 起前导区为零，构建时注入 `[17408, 32MiB)` 载荷区，镜像自身 GPT 保留
+  （产物整盘 dd 也安全）；`verify-image.sh` 硬门禁：RKNS + FIT + 整片 32MiB 逐字节一致 +
+  **版本串必须含 `U-Boot 2026.04-TRIM`**。
+- RK3568 的两个仓（`lyw-kf` / `xck-nas`）同口径，用同一构建的 RK3568 件
+  `fnos-rk3568-first32m.bin`（sha256 `b6c138e16ce6de55…`，ddr-v1.23-03ea844c5d）。
 
 ## 基镜像
 

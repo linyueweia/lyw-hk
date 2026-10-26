@@ -119,7 +119,7 @@ jobs:
           set -e
           sudo -E BASE=base/fnnas-base.img \
                   DTB=dist/rk3588-hinlink-h88k.dtb \
-                  UBOOT=uboot/h88k-first32m.bin \
+                  UBOOT=uboot/fnos-rk3588-first32m.bin \
                   BUILD_NUM="${{ github.run_number }}" \
                   OUT_DIR=out \
                   bash build-h88k-fnos.sh
@@ -129,7 +129,7 @@ jobs:
         run: |
           set -e
           IMG="$(ls out/*.img | head -1)"
-          sudo -E DTB=dist/rk3588-hinlink-h88k.dtb UBOOT=uboot/h88k-first32m.bin bash tools/verify-image.sh "$IMG"
+          sudo -E DTB=dist/rk3588-hinlink-h88k.dtb UBOOT=uboot/fnos-rk3588-first32m.bin bash tools/verify-image.sh "$IMG"
 
       - name: Show outputs
         run: |
