@@ -69,6 +69,13 @@ ok "gmac0 tx_delay = 68 (0x44)"
 [[ "$(fdtget -t s "$DTB" /leds/user label)" == "green:user" ]] || fail "LED user 命名不符"
 [[ "$(fdtget -t s "$DTB" /leds/work label)" == "red:work" ]] || fail "LED work 命名不符"
 ok "LED 四灯 = blue:net/amber:sata/green:user/red:work（厂商板级源码+实机两票）"
+# 改造③：IOMMU compatible 必须已对齐主线（rockchip,rk3588-iommu，不允许 iommu-v2 残留）
+IOMMU_DIST="$(dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -c 'compatible = "rockchip,rk3588-iommu"' || true)"
+[[ "${IOMMU_DIST:-0}" -ge 1 ]] || fail "IOMMU compatible 未对齐主线：dist 里没有 rockchip,rk3588-iommu"
+if dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -q 'compatible = "rockchip,iommu-v2"'; then
+    fail "dist 里仍有 rockchip,iommu-v2（主线 6.18 不会 probe）"
+fi
+ok "IOMMU compatible = rockchip,rk3588-iommu ×$IOMMU_DIST（无 iommu-v2 残留）"
 # 改造①：cma 固定区必须已删（CMA 交给 cmdline cma=2G）
 if fdtget "$DTB" /reserved-memory/cma reg >/dev/null 2>&1; then
     fail "reserved-memory/cma 仍在（会把 CMA 压死在 256M，cmdline cma=2G 无效）"
@@ -90,12 +97,17 @@ ok "PCIe fe15/fe17/fe18/fe19 全 okay（NVMe + WiFi + 2.5G×2）"
 # 与金标准底本（厂商实机 DTB）差异面：只允许 7 行改造
 if [[ -f "$REF" ]]; then
     echo
-    echo "==== 4) 与厂商实机底本的差异面（应恰好 7 行）===="
+    echo "==== 4) 与厂商实机底本的差异面（7 项改造 + IOMMU 改名）===="
     dtc -I dtb -O dts -o "$TMP/ref.dts" "$REF" 2>/dev/null
     DIFF_N="$(diff "$TMP/ref.dts" "$TMP/dist.dts" | grep -cE '^[<>]' || true)"
-    echo "  差异行数: $DIFF_N"
-    [[ "$DIFF_N" -le 8 ]] || fail "与厂商实机底本差异过大（$DIFF_N 行），疑似附带损伤"
-    ok "差异面受控（仅删 cma 节点 + 加 power-controller）"
+    REF_IOMMU="$(grep -c 'compatible = "rockchip,iommu-v2"' "$TMP/ref.dts" || true)"
+    DIST_IOMMU="$(grep -c 'compatible = "rockchip,rk3588-iommu"' "$TMP/dist.dts" || true)"
+    ALLOW=$((8 + 2 * REF_IOMMU))
+    echo "  差异行数: $DIFF_N（允许上限 $ALLOW = 8 + 2×$REF_IOMMU 处 IOMMU 改名）"
+    [[ "$REF_IOMMU" -ge 1 ]] || fail "底本里没有 rockchip,iommu-v2（底本不对？）"
+    [[ "$DIST_IOMMU" -eq "$REF_IOMMU" ]] || fail "IOMMU 改名数量不符：底本 $REF_IOMMU 处，成品 $DIST_IOMMU 处"
+    [[ "$DIFF_N" -le "$ALLOW" ]] || fail "与厂商实机底本差异过大（$DIFF_N 行 > $ALLOW），疑似附带损伤"
+    ok "差异面受控（删 cma + 加 power-controller + $REF_IOMMU 处 IOMMU 改名）"
 fi
 
 echo

@@ -12,7 +12,8 @@ U-Boot 不动、不注入任何树外模块。
 
 最终 DTB `dist/rk3588-hinlink-h88k.dtb` = **厂商实机 iNextOS 的
 `/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb`（md5 `37193036099ba80b945c792f741afb3e`，
-底本存档在 `refs/`）+ 恰好 7 行改造**，可由 `tools/make-final-dtb.py` 逐字节重生。
+底本存档在 `refs/`）+ 恰好 8 项改造**（7 项板级 + 1 项 IOMMU 命名对齐主线），
+可由 `tools/make-final-dtb.py` 重生（sha256 `0cdc16f5…`）。
 
 三份厂商参考交叉核对（全部一致才敢定稿）：
 
@@ -24,7 +25,7 @@ U-Boot 不动、不注入任何树外模块。
 | PMIC | rk806(include) | rk806 | rk806 | rk806 |
 | 串口 | serial2:1500000n8 | 同 | 同 | 同 |
 
-仅有的 7 行改造（两处偏离厂商，理由如下）：
+仅有的 8 项改造（理由如下）：
 
 1. **删 `/reserved-memory/cma`（固定 256M 区）** —— 用户要求 CMA=2G。
    保留固定 reg 会把 CMA 压死在 256M；改走 `fnEnv extraargs=cma=2G`，
@@ -33,6 +34,11 @@ U-Boot 不动、不注入任何树外模块。
    但主线 `drivers/mfd/rk8xx-core.c` 靠它注册 sys_off 断电 handler
    （`device_property_read_bool` 对 `rockchip,` 前缀与裸名两种写法都认）。
    不加则 `poweroff` 退化成 halt（PMIC 不断电）。
+3. **全树 `compatible` 由 `rockchip,iommu-v2` 改成 `rockchip,rk3588-iommu`（21 处）** ——
+   厂商 DTB 是配厂商 6.1 内核的写法；本仓内核是主线 6.18，
+   `drivers/iommu/rockchip-iommu.c` 的 match 表只有 `rockchip,rk3588-iommu`，
+   不改则 IOMMU 全部不 probe（VOP/VPU/RGA 走不到 IOMMU）。
+   此项**只影响媒体/显示侧，不挡启动**，且**尚未上机验证** IOMMU 实际工作与否。
 
 其余（gmac0 时序、PCIe、LED GPIO、eMMC、串口…）**一律厂商原样**。
 `phy-mode=rgmii-rxid` 经主线 6.18 `dwmac-rk.c` 源码核实：
