@@ -57,28 +57,13 @@ MODEL="$(fdtget -t s "$F" / model)"
 fdtget -t s "$F" / compatible | grep -qi h88k && ok "compatible 含 h88k" || fail "compatible 不含 h88k"
 
 echo
-echo "── 3) 内存节点（缺了内核 0 字节 RAM，booti 后静默死亡）──"
-python3 - "$F" dts/memory-banks.json <<'PY'
-import json, subprocess, sys
-dtb, jf = sys.argv[1], sys.argv[2]
-d = json.load(open(jf, encoding='utf-8'))
-banks = sorted(d['banks'], key=lambda x: x['base'])
-node = '/memory@%x' % banks[0]['base']
-st = subprocess.run(['fdtget', '-t', 's', dtb, node, 'device_type'], capture_output=True, text=True)
-if st.stdout.strip() != 'memory':
-    sys.exit(f"✗ 缺 {node}（device_type=memory）")
-reg = subprocess.run(['fdtget', '-t', 'x', dtb, node, 'reg'], capture_output=True, text=True)
-got = [int(x, 16) for x in reg.stdout.split()]
-want = []
-for b in banks:
-    for v in (b['base'], b['size']):
-        want += [(v >> 32) & 0xFFFFFFFF, v & 0xFFFFFFFF]
-if got != want:
-    sys.exit(f"✗ memory reg 与 dts/memory-banks.json 不一致\n   DTB={got}\n   JSON={want}")
-print(f"  ✓ memory {len(banks)} banks / {sum(b['size'] for b in banks)/1024**3:.3f} GiB，与数据源一致")
-PY
+echo "── 3) 内存节点（与官方 T6 一致：DTB 不写，u-boot 注入）──"
+if dtc -I dtb -O dts -o - "$F" 2>/dev/null | grep -q 'device_type = "memory"'; then
+    fail "DTB 不应自带 /memory 节点（官方 T6 也没有；实测 u-boot 会注入三 bank 8GB）"
+else
+    ok "无 /memory 节点（u-boot 引导时注入，实机 MemTotal 8123084 kB）"
+fi
 
-echo
 echo "── 4) DTB 关键属性 ──"
 dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null
 N_IOMMU="$(grep -o 'rockchip,rk3588-iommu' "$TMP/in.dts" | wc -l | tr -d ' ')"

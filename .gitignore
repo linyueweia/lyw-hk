@@ -1,7 +1,4 @@
 
-# 构建时由 dts/memory-banks.json 生成，不入库
-dts/memory-banks.dtsi
-
 # 构建产物与临时件
 out/
 dist/

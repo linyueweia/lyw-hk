@@ -78,28 +78,13 @@ for DTB in "${DTBS[@]}"; do
     [[ "${CNT_REG:-0}" -ge 8 ]] || fail "PMIC 稳压器数量异常（regulator-name 仅 ${CNT_REG:-0} 个）"
     ok "PMIC rk806 + 断电属性 + $CNT_REG 路稳压器"
 
-    # 内存节点必须存在，且与数据源 dts/memory-banks.json 完全一致（不写死容量）
-    python3 - "$DTB" <<'PY'
-import json, subprocess, sys
-dtb = sys.argv[1]
-d = json.load(open("dts/memory-banks.json", encoding="utf-8"))
-banks = sorted(d["banks"], key=lambda x: x["base"])
-node = "/memory@%x" % banks[0]["base"]
-dt = subprocess.run(["fdtget", "-t", "s", dtb, node, "device_type"], capture_output=True, text=True)
-if dt.stdout.strip() != "memory":
-    sys.exit("✗ DTB 缺 %s（device_type=memory）—— 内核会拿到 0 字节 RAM，booti 后静默死亡" % node)
-r = subprocess.run(["fdtget", "-t", "x", dtb, node, "reg"], capture_output=True, text=True)
-got = [int(x, 16) for x in r.stdout.split()]
-want = []
-for b in banks:
-    for v in (b["base"], b["size"]):
-        want += [(v >> 32) & 0xFFFFFFFF, v & 0xFFFFFFFF]
-if got != want:
-    sys.exit("✗ memory reg 与 dts/memory-banks.json 不一致\n  DTB : %s\n  JSON: %s" % (got, want))
-print("  ✓ memory 与数据源一致：%d banks / %.3f GiB（%s）" % (
-    len(banks), sum(b["size"] for b in banks) / 1024.0**3, node))
-PY
-    ok "memory 节点存在且与数据源一致（容量不写死）"
+    # 内存：不写 /memory 节点，与官方 T6 DT 完全一致；内存由 u-boot 注入
+    # （实测本板 u-boot 注入 0x00200000+0xefe00000 / 0x1_00000000+0x1_00000000 /
+    #   0x2_f0000000+0x10000000，MemTotal 8123084 kB）
+    if grep -q 'device_type = "memory"' "$TMP"; then
+        fail "DTB 不应自带 /memory 节点（官方 T6 也没有，由 u-boot 注入）"
+    fi
+    ok "无 /memory 节点（与 T6 一致，内存由 u-boot 注入）"
 
     # 多媒体：GPU/VOP/HDMI 必须启用（官方 T6 DTB 同为 okay；关掉会无 /dev/dri、HDMI 全黑、vdd_gpu 断电）
     for n in /gpu@fb000000 /vop@fdd90000 /hdmi@fde80000; do

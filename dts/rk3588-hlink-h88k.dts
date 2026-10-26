@@ -10,10 +10,11 @@
 	model = "Hlink H88K";
 	compatible = "hlink,h88k", "rockchip,rk3588";
 
-	/* 内存节点由构建生成（数据源 dts/memory-banks.json，实机采集）。
-	 * 不在此写死容量：缺 /memory 时内核拿到 0 字节 RAM，booti 后静默死亡。
+	/* 不写 /memory 节点 —— 与官方 T6 完全一致。
+	 * 内存由 u-boot 在 booti 前注入（fdt_fixup_memory）；实测本板 u-boot 注入结果
+	 * 为 0x00200000+0xefe00000 / 0x1_00000000+0x1_00000000 / 0x2_f0000000+0x10000000，
+	 * MemTotal 8123084 kB，与手写值一致（2026-10-26 实机对照验证）。
 	 */
-	#include "memory-banks.dtsi"
 
 	vcc3v3_m2_sata: vcc3v3-m2-sata {
 		compatible = "regulator-fixed";

@@ -25,12 +25,10 @@ dts/
   rk3588-hlink.dtsi        板级公共 dtsi（厂商 DTS 来源 + PMIC 断电属性 + PCIe 复位/PHY）
   rk3588-hlink-h88k.dts    板级入口（model/compatible + #include 两个 dtsi）
   t6-align.dtsi            与官方 T6 DTB 逐节点对齐的开/关项（GPU/VOP/HDMI 开、NPU 关…）
-  memory-banks.json        内存布局数据源（板上采集，构建时生成 memory-banks.dtsi）
+                           （不写 /memory 节点：与 T6 一致，内存由 u-boot 注入）
 build-dtb.sh               在飞牛内核树里编 DTB（CI 用）
 build-h88k-fnos.sh         装配镜像：官方母本 + 三件 + GPT 收尾
 tools/
-  capture-memory.sh        在实机上从 /proc/device-tree/memory/reg 采集内存布局 → JSON
-  gen-memory-dtsi.py       JSON → memory-banks.dtsi（构建时生成，不入库）
   verify-h88k-dts.sh       DTB 硬门禁（内存/PMIC/iommu/PCIe/combphy/多媒体/LED/gmac）
   verify-image.sh          镜像自证（分区/DTB/fnEnv/引导链/u-boot 载荷/GPT/rootfs）
   fix-gpt-backup.py        把 3.6G 镜像写进更大 eMMC 时把 GPT 备份表搬到盘尾
@@ -71,7 +69,8 @@ sudo -E DTB=dist/rk3588-hlink-h88k.dtb \
 
 ## 关键坑（详见 docs）
 
-1. DTB 缺 `/memory` → 内核 0 字节 RAM，`booti` 后静默死亡（无串口无 HDMI 无日志）
+1. `/memory` 不要自己写：官方 T6 的 DTB 也没有，内存由 u-boot `fdt_fixup_memory` 注入
+   （实测注入三 bank 8GB，MemTotal 8123084 kB）。曾经手写一版，属多余
 2. `/ethernet@fe1b0000` 不能带 `label`（stmmac 撞名 `-17`，千兆口整个消失、地址乱漂）
 3. 第二个 2.5G 要显式启用 `pcie@fe190000` + `combphy0_ps`（reset `<&gpio4 RK_PA5>`）
 4. 三块网卡都没有出厂 MAC → 按 SoC 序列号 + 设备路径派生固定 MAC

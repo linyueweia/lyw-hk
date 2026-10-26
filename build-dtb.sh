@@ -25,12 +25,9 @@ KERNEL_DIR="${KERNEL_DIR:-kernel}"
 DTS_SRC="${DTS_SRC:-dts/rk3588-hlink-h88k.dts}"
 DTS_NAME="rk3588-hlink-h88k.dts"
 DTSI_SRC="${DTSI_SRC:-dts/rk3588-hlink.dtsi}"
-MEM_JSON="${MEM_JSON:-dts/memory-banks.json}"
-MEM_DTSI="memory-banks.dtsi"
 OUT="${OUT:-dist/rk3588-hlink-h88k.dtb}"
 
 [[ -f "$DTS_SRC" ]] || { echo "✗ 缺 $DTS_SRC"; exit 1; }
-[[ -f "$MEM_JSON" ]] || { echo "✗ 缺 $MEM_JSON（内存布局数据源，由 tools/capture-memory.sh 在实机采集）"; exit 1; }
 
 echo "==== 1) 准备飞牛内核树 ===="
 if [[ ! -d "$KERNEL_DIR/.git" ]]; then
@@ -47,12 +44,8 @@ cp "$DTSI_SRC" "$DTS_DIR/$(basename "$DTSI_SRC")"   # 板级公共 dtsi（含 PM
 # 其余板级 dtsi（如 t6-align.dtsi：对齐官方 T6 的 GPU/VOP/HDMI 等开关）一并带入
 for extra_dtsi in dts/*.dtsi; do
     [ -f "$extra_dtsi" ] || continue
-    case "$(basename "$extra_dtsi")" in memory-banks.dtsi) continue;; esac
     cp -f "$extra_dtsi" "$DTS_DIR/$(basename "$extra_dtsi")"
 done
-# 内存节点由数据源生成（DTS 里不写死 4G/8G/16G 的数字）
-python3 tools/gen-memory-dtsi.py "$MEM_JSON" -o "$DTS_DIR/$MEM_DTSI"
-grep -q 'memory-banks.dtsi' "$DTS_DIR/$DTS_NAME" || { echo "✗ 板级 DTS 未 #include \"$MEM_DTSI\""; exit 1; }
 MK="$DTS_DIR/Makefile"
 DTB_NAME="${DTS_NAME%.dts}.dtb"          # Makefile 里必须是 .dtb，写成 .dts 会静默不编（踩过）
 if grep -q "$DTB_NAME" "$MK"; then
