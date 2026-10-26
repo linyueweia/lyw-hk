@@ -150,11 +150,16 @@ for DTB in "${DTBS[@]}"; do
     ok "VPU 解码核 = rockchip,rkv-decoder-v2（rockchip,srv + taskqueue-node 齐）"
 
     # 编解码核（物理块命名沿用内核树，MPP 经 mpp-srv 汇总）
-    N_VDEC="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP" || true; } | wc -l | tr -d ' ')"
-    N_VENC="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP" || true; } | wc -l | tr -d ' ')"
-    [[ "${N_VDEC:-0}" -ge 1 ]] || fail "缺 rk3588-vpu121 解码核"
-    [[ "${N_VENC:-0}" -ge 4 ]] || fail "缺 rk3588-vepu121 编码核（应 ≥4）"
-    ok "编解码核：vpu121 ×${N_VDEC} / vepu121 ×${N_VENC}"
+    # 编解码核：MPP 新 BSP 命名（2026-10-27 实机编解码全通；老 rk3588-vpu121/vepu121 不被驱动识别）
+    N_VENC2="$( { grep -o 'rockchip,vpu-encoder-v2' "$TMP" || true; } | wc -l | tr -d ' ')"
+    N_RKVENC="$( { grep -o 'rockchip,rkv-encoder-v2-core' "$TMP" || true; } | wc -l | tr -d ' ')"
+    N_RKVDEC="$( { grep -o 'rockchip,rkv-decoder-v2' "$TMP" || true; } | wc -l | tr -d ' ')"
+    [[ "${N_RKVDEC:-0}" -ge 1 ]] || fail "缺 rkv-decoder-v2 解码核"
+    [[ "${N_VENC2:-0}" -ge 1 ]] || fail "缺 vpu-encoder-v2 编码核（VEPU）"
+    [[ "${N_RKVENC:-0}" -ge 1 ]] || fail "缺 rkv-encoder-v2-core 编码核（RKVENC）"
+    fdtget "$DTB" /venc-opp-table compatible >/dev/null 2>&1 || fail "缺 venc-opp-table（rkvenc devfreq/opp 依赖）"
+    fdtget "$DTB" /rkvenc-ccu compatible >/dev/null 2>&1 || fail "缺 rkvenc-ccu（且必须定义在 rkvenc-core 之前，否则 attach ccu failed）"
+    ok "编解码核：rkvdec ×$N_RKVDEC / vpu-encoder-v2 ×$N_VENC2 / rkv-encoder-v2-core ×$N_RKVENC（+ venc opp/ccu）"
 
     echo "-- 6) IOMMU 命名必须与官方内核一致（本仓核心判据）--"
     # 注意：树里是双值写法 compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";

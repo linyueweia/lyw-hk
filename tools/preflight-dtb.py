@@ -151,10 +151,12 @@ def build(d):
         lambda: txt.count(b'rockchip,rk3588-iommu'))
     chk("rockchip,iommu-v2 残留 0 次", lambda: txt.count(b'rockchip,iommu-v2') == 0,
         lambda: txt.count(b'rockchip,iommu-v2'))
-    chk("rk3588-vpu121 ≥1", lambda: txt.count(b'rockchip,rk3588-vpu121') >= 1,
+    chk("rk3588-vpu121 已不再使用（老命名不被 MPP 识别）", lambda: txt.count(b'rockchip,rk3588-vpu121') == 0,
         lambda: txt.count(b'rockchip,rk3588-vpu121'))
-    chk("rk3588-vepu121 ≥4", lambda: txt.count(b'rockchip,rk3588-vepu121') >= 4,
-        lambda: txt.count(b'rockchip,rk3588-vepu121'))
+    chk("有 vpu-encoder-v2（VEPU）", lambda: txt.count(b'rockchip,vpu-encoder-v2') >= 1)
+    chk("有 rkv-encoder-v2-core（RKVENC）", lambda: txt.count(b'rockchip,rkv-encoder-v2-core') >= 1)
+    chk("有 venc-opp-table", lambda: 'operating-points-v2' in (d.s('/venc-opp-table', 'compatible') or ''))
+    chk("有 rkvenc-ccu", lambda: 'rkv-encoder-v2-ccu' in (d.s('/rkvenc-ccu', 'compatible') or ''))
 
     # ── eMMC / SD / 串口 / 其它外设 ──
     for n in ('/mmc@fe2e0000', '/mmc@fe2c0000'):
