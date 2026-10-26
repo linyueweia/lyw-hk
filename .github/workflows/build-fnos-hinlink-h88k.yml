@@ -72,7 +72,7 @@ jobs:
       - name: 编译 DTB（飞牛内核树 unifreq/linux-6.18.y）
         run: |
           set -e
-          chmod +x build-dtb.sh tools/verify-dtb.sh
+          chmod +x build-dtb.sh
           bash build-dtb.sh
           ls -la dist/
 
