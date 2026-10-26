@@ -42,20 +42,29 @@ umount_safe() {
 fail() { echo "✗ $*" >&2; exit 1; }
 
 BASE="${BASE:?需要 BASE=<飞牛基镜像 .img>}"
-DTB="${DTB:?需要 DTB=<本板 .dtb>}"
+# 2026-10-26：DTB 默认【不外部传入】——就地适配基镜像自带的官方 DTB
+# （tools/adapt-official-dtb.py，证据来自官方内核二进制的 of_match 表）。
+# 传 DTB=<路径> 仅用于回归/对比场景。
+DTB="${DTB:-}"
 OUT_DIR="${OUT_DIR:-out}"
 BUILD_NUM="${BUILD_NUM:-0}"
 [[ -f "$BASE" ]] || fail "基镜像不存在: $BASE"
-[[ -f "$DTB" ]] || fail "DTB 不存在: $DTB"
-
-DTB_NAME="$(basename "$DTB")"
-[[ "$DTB_NAME" == "rk3588-hlink-h88k.dtb" ]] || fail "DTB 文件名必须是 rk3588-hlink-h88k.dtb，得到: $DTB_NAME"
+if [[ -n "$DTB" ]]; then
+    [[ -f "$DTB" ]] || fail "DTB 不存在: $DTB"
+    DTB_NAME="$(basename "$DTB")"
+else
+    DTB_NAME="rk3588-hinlink-h88k.dtb"      # 基镜像里官方那份的文件名（保持不动）
+fi
 
 IMG_SRC_SHA="$(sha256sum "$BASE" | awk '{print $1}')"
-DTB_SHA="$(sha256sum "$DTB" | awk '{print $1}')"
 echo "==== H88K fnOS 装配 ===="
 echo "  基镜像: $BASE (sha256 ${IMG_SRC_SHA:0:16}…)"
-echo "  DTB   : $DTB (sha256 ${DTB_SHA:0:16}…)"
+if [[ -n "$DTB" ]]; then
+    DTB_SHA="$(sha256sum "$DTB" | awk '{print $1}')"
+    echo "  DTB   : 外部传入 $DTB (sha256 ${DTB_SHA:0:16}…)"
+else
+    echo "  DTB   : 就地适配基镜像自带的官方 $DTB_NAME"
+fi
 
 mkdir -p "$OUT_DIR"
 IMG="$OUT_DIR/fnos_Mainland-PE_arm_12_HINLINK-H88K.img"
@@ -121,13 +130,31 @@ ROOT_PARTUUID="$(lsblk -no PARTUUID "$ROOT_PART" | tr -d ' ')"
 echo "  rootfs PARTUUID = $ROOT_PARTUUID（boot.scr 每次现场取，不写死）"
 
 echo
-echo "==== 2) 注入 DTB ===="
-mkdir -p "$BOOT_MNT/dtb/rockchip"
-cp -f "$DTB" "$BOOT_MNT/dtb/rockchip/$DTB_NAME"
-sync
-GOT="$(sha256sum "$BOOT_MNT/dtb/rockchip/$DTB_NAME" | awk '{print $1}')"
-[[ "$GOT" == "$DTB_SHA" ]] || fail "DTB 落盘 sha256 不符"
-echo "  ✓ dtb/rockchip/$DTB_NAME (sha256 ${GOT:0:16}…)"
+echo "==== 2) DTB ===="
+OFFICIAL_DTB="$BOOT_MNT/dtb/rockchip/$DTB_NAME"
+if [[ -n "$DTB" ]]; then
+    mkdir -p "$BOOT_MNT/dtb/rockchip"
+    cp -f "$DTB" "$OFFICIAL_DTB"
+    sync
+    GOT="$(sha256sum "$OFFICIAL_DTB" | awk '{print $1}')"
+    [[ "$GOT" == "$DTB_SHA" ]] || fail "DTB 落盘 sha256 不符"
+    echo "  ✓ 已注入外部 DTB dtb/rockchip/$DTB_NAME (sha256 ${GOT:0:16}…)"
+else
+    [[ -f "$OFFICIAL_DTB" ]] || fail "基镜像里没有 dtb/rockchip/$DTB_NAME"
+    echo "  官方 DTB 原始 sha256: $(sha256sum "$OFFICIAL_DTB" | awk '{print $1}')"
+    python3 tools/adapt-official-dtb.py "$OFFICIAL_DTB" || fail "官方 DTB 适配失败"
+    sync
+    echo "  适配后 sha256: $(sha256sum "$OFFICIAL_DTB" | awk '{print $1}')"
+    # 二次硬断言（脚本内部已断言，这里防"改了但没落盘"）
+    python3 - "$OFFICIAL_DTB" <<'PYCHK'
+import subprocess, sys
+d = subprocess.run(["dtc","-I","dtb","-O","dts","-o","-",sys.argv[1]], capture_output=True, text=True).stdout
+assert d.count('rockchip,rk3588-iommu') == 21, f"iommu 数量 {d.count('rockchip,rk3588-iommu')} != 21"
+assert 'rockchip,iommu-v2' not in d, "仍有 iommu-v2 残留"
+assert 'rockchip,system-power-controller' in d, "PMIC 断电属性缺失"
+print("  ✓ 适配后 DTB 二次断言通过（iommu ×21 / 无 v2 / PMIC 断电属性）")
+PYCHK
+fi
 
 echo
 echo "==== 3) fnEnv.txt（保留基镜像字段，只改 fdtfile / extraargs）===="

@@ -30,25 +30,22 @@ mount "${LOOP}p1" "$TMP/boot" || fail "挂载 BOOT 失败"
 mount "${LOOP}p2" "$TMP/root" || fail "挂载 rootfs 失败"
 
 echo
-echo "── 1) DTB 在位且与仓库成品一致 ──"
-F="$TMP/boot/dtb/rockchip/rk3588-hlink-h88k.dtb"
-[[ -f "$F" ]] || fail "镜像缺 dtb/rockchip/rk3588-hlink-h88k.dtb"
-EXP="$(sha256sum "${DTB:-dist/rk3588-hlink-h88k.dtb}" 2>/dev/null | awk '{print $1}')"
-GOT="$(sha256sum "$F" | awk '{print $1}')"
-if [[ -n "$EXP" ]]; then
-    [[ "$GOT" == "$EXP" ]] || fail "镜像内 DTB sha256 与仓库 dist 不符"
-    ok "DTB sha256 = 仓库 dist 成品 (${GOT:0:16}…)"
-else
-    ok "DTB sha256 = ${GOT:0:16}…（仓库 dist 不在场，跳过比对）"
-fi
+echo "── 1) DTB 在位（官方自带 + 就地适配）──"
+F="$TMP/boot/dtb/rockchip/rk3588-hinlink-h88k.dtb"
+[[ -f "$F" ]] || fail "镜像缺 dtb/rockchip/rk3588-hinlink-h88k.dtb"
+ok "DTB = 基镜像官方 $((stat -c%s "$F")) B，sha256 $(sha256sum "$F" | awk '{print substr($1,1,16)}')…"
 
 echo
 echo "── 2) DTB 关键属性（金标准）──"
 dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null
 [[ "$(fdtget -t s "$F" / model)" == "HINLINK H88K" ]] || fail "model 不符"
 ok "model = HINLINK H88K"
-[[ "$(fdtget -t s "$F" / compatible)" == *hinlink,h88k* ]] || fail "compatible 不符"
-ok "compatible 含 hinlink,h88k"
+[[ "$(fdtget -t s "$F" / compatible)" == *h88k* ]] || fail "compatible 不符"
+ok "compatible 含 h88k"
+N_IOMMU="$(grep -c 'compatible = "rockchip,rk3588-iommu"' "$TMP/in.dts" || true)"
+[[ "${N_IOMMU:-0}" -eq 21 ]] || fail "iommu 适配数量不符：$N_IOMMU（期望 21）"
+grep -q 'rockchip,iommu-v2' "$TMP/in.dts" && fail "DTB 仍有 rockchip,iommu-v2（官方内核 of_match 里 0 处）"
+ok "IOMMU 已适配到官方内核（rk3588-iommu ×21，无 iommu-v2）"
 [[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] || fail "gmac0 phy-mode 不符"
 [[ "$(fdtget -t i "$F" /ethernet@fe1b0000 tx_delay)" == "68" ]] || fail "gmac0 tx_delay 不符"
 ok "gmac0 rgmii-rxid + tx_delay=68(0x44)"

@@ -8,23 +8,30 @@
 **基镜像 + 厂商金标准 DTB + fnEnv(fdtfile / cma=2G) + board.json**，四步装配；
 U-Boot 不动、不注入任何树外模块。
 
-## DTB 适配（2026-10-26 定案：用飞牛内核树自带的板级 DTS）
+## DTB 适配（2026-10-26 定案：只用官方材料，就地适配官方 DTB）
 
-**结论先说：这块板在飞牛内核树里已经有官方血统的板级 DTS，不需要移植厂商 6.1 的 DTS。**
+**不引入第三方 DTB、也不拿社区内核树编 DTB。** 做法是：用飞牛基镜像**自带**的
+`dtb/rockchip/rk3588-hinlink-h88k.dtb`（sha256 `c2162495acd7e90f…`，与厂商 iNextOS 里那份
+逐字节相同），只改**官方内核确实不认**的兼容串，证据来自官方内核二进制本体：
 
-- 内核树 `unifreq/linux-6.18.y`（飞牛 `6.18.18.cXXX-trim` 的来源树）自带：
-  - `arch/arm64/boot/dts/rockchip/rk3588-hlink.dtsi`（24.7 KB，板级公共部分，作者 Flippy）
-  - `rk3588-hlink-h88k.dts`（基础版）/ `-v3.dts` / `-v31.dts`（H88K V3 / V3.1，31.6 KB 全量）
-- 与实物逐项对上（厂商 DTB 三份交叉核对）：LED `blue:net/amber:sata/green:user/red:work`、
-  `gmac0 phy-mode=rgmii-rxid` + `tx_delay=0x44`、PMIC `rockchip,rk806`、无 cma 固定区、
-  `#include "rk3588.dtsi"` ⇒ SoC 级（iommu/时钟/电源域）天然与飞牛内核同源。
-- 本仓只做 **1 项改造**：`pmic@0` 补 `rockchip,system-power-controller`
-  （主线 rk8xx-core 靠它注册 sys_off handler；不加则 `poweroff` 只 halt 不断电）。
-- 产物名随树内命名：`dist/rk3588-hlink-h88k.dtb`，`model = "Hlink H88K"`、`compatible = "hlink,h88k"`。
-- ⚠ **反面记录（已弃）**：曾用厂商发布镜像里的 `rk3588-hinlink-h88k.dtb`（厂商 6.1 BSP 树编的，
-  SoC 级写 `rockchip,iommu-v2`）去配飞牛 6.18 内核，并手改 21 处字符串救 ——
-  飞牛树里是 `rockchip,rk3588-iommu`（×14，iommu-v2 ×0），这就是"DTB 与内核不配套"的本体。
-  厂商 6.1 DTS 现只存 `refs/rk3588-hinlink-h88k-vendor-6.1.dts` 作对照，不参与构建。
+| 兼容串 | 官方 DTB 里 | 官方内核 `vmlinuz-6.18.18.c1145-trim` 里 | 处置 |
+|---|---|---|---|
+| `rockchip,iommu-v2` | 21 处 | **0 处** | 改成 `rockchip,rk3588-iommu` |
+| `rockchip,rk3588-iommu` | 0 处 | **2 处** | ← 目标名 |
+| `rockchip,mipi-dcphy` | 2 处 | 0 处（内核无此驱动） | 保留节点，不猜改名 |
+| `rockchip,rk3588-hdmirx-ctrler` | 1 处 | 0 处（HDMI-in 无驱动） | 保留节点 |
+
+> 结论：**飞牛官方镜像自带的这份 H88K DTB 与它自己的内核就是错配的**（IOMMU 一个都不 probe），
+> 不是我们"适配坏"，是官方这份从厂商 6.1 BSP 直接搬来没改命名。
+
+- 工具：`tools/adapt-official-dtb.py`（dtc 往返 + 断言 21/0 + PMIC 断电属性 + 板级值不变性检查）
+- 装配时执行：`build-h88k-fnos.sh` 挂载 BOOT 后就地适配，随后再跑一次 Python 二次断言
+  （iommu ×21 / 无 `iommu-v2` / PMIC 带 `rockchip,system-power-controller`）
+- 唯一另一项改造：`pmic@0`（rk806）补 `rockchip,system-power-controller`
+  —— 官方内核 `rk8xx-core` 靠它注册 sys_off handler，不加 `poweroff` 只 halt 不断电
+- ⚠ 历史路径（**已弃，仅存 `refs/` 参考**）：`refs/alt-build-dtb.sh` + `refs/alt-rk3588-hlink*.dts`
+  是"在社区内核树里编树内 hlink DTS"的替代方案。它虽然能编出配套 DTB，但基底是社区树而非
+  官方材料，按你的口径不采用。`refs/rk3588-hinlink-h88k-vendor-6.1.dts` 是厂商 6.1 源，仅作对照。
 
 ## U-Boot 口径（2026-10-26 校正版，判据是 DDR 不是 build 号）
 
