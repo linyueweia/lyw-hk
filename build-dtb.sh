@@ -71,3 +71,6 @@ cp "$DTS_DIR/${DTS_NAME%.dts}.dtb" "$OUT"
 ls -la "$OUT"
 sha256sum "$OUT"
 echo "  ✓ DTB 由飞牛内核树编译，SoC 级绑定与内核同源"
+echo "  ---- 产物摘要（iommu 节点 / 兼容串）----"
+dtc -I dtb -O dts "$OUT" 2>/dev/null | grep -c 'iommu@' | sed 's/^/    iommu 节点数: /' || true
+dtc -I dtb -O dts "$OUT" 2>/dev/null | grep -o 'rockchip,rk3588-iommu' | wc -l | sed 's/^/    rk3588-iommu 出现: /' || true
