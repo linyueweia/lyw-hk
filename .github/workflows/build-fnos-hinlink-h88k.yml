@@ -24,9 +24,11 @@ on:
         default: "fnnas-official-arm64-image_rockchip.img.gz"
         type: string
       base_image_sha256:
-        description: "基镜像(解压后) sha256；留空跳过断言（首跑取 CI 实测值后回填）"
+        description: "基镜像(解压后) sha256；留空跳过断言"
         required: false
-        default: ""
+        # run 40265755055 (fnos_hinlink-h88k_3) CI 实测解压值，
+        # 与本地取证件逐字节一致（d0f4d40b…，同 lyw-kf 记载的那份）
+        default: "d0f4d40ba82966720d6cbc39f22100192c50b9a7a4a4ba219ff5eceada61a216"
         type: string
   push:
     branches: [main]
