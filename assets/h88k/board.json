@@ -14,5 +14,16 @@
       "sysfs": "amber:sata",
       "trigger": "disk-activity"
     }
+  ],
+  "fan": [
+    {
+      "name": "fan0",
+      "tsysfs": "/sys/devices/virtual/thermal/thermal_zone0/temp",
+      "fsysfs": "/sys/devices/virtual/thermal/cooling_device0/cur_state",
+      "start_speed": 1,
+      "max_speed": 4,
+      "start_temp": 45,
+      "temp_div": 1000
+    }
   ]
 }

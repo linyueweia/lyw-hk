@@ -151,12 +151,39 @@ def build(d):
         lambda: txt.count(b'rockchip,rk3588-iommu'))
     chk("rockchip,iommu-v2 残留 0 次", lambda: txt.count(b'rockchip,iommu-v2') == 0,
         lambda: txt.count(b'rockchip,iommu-v2'))
-    chk("rk3588-vpu121 已不再使用（老命名不被 MPP 识别）", lambda: txt.count(b'rockchip,rk3588-vpu121') == 0,
-        lambda: txt.count(b'rockchip,rk3588-vpu121'))
-    chk("有 vpu-encoder-v2（VEPU）", lambda: txt.count(b'rockchip,vpu-encoder-v2') >= 1)
-    chk("有 rkv-encoder-v2-core（RKVENC）", lambda: txt.count(b'rockchip,rkv-encoder-v2-core') >= 1)
+    # 编码链：逐节点照官方 T6 DTB（2026-10-27 从 refs/t6-official.dtb 原文核对）
+    chk("vepu@fdb50000 = vpu-encoder-v2 且 disabled（官方 T6 就是关的）",
+        lambda: 'rockchip,vpu-encoder-v2' in (d.s('/vepu@fdb50000', 'compatible') or '')
+        and d.s('/vepu@fdb50000', 'status') == 'disabled',
+        lambda: f"{d.s('/vepu@fdb50000', 'compatible')} / {d.s('/vepu@fdb50000', 'status')}")
+    chk("vdpu@fdb50400 = vpu-decoder-v2 且 okay",
+        lambda: 'rockchip,vpu-decoder-v2' in (d.s('/vdpu@fdb50400', 'compatible') or '')
+        and d.s('/vdpu@fdb50400', 'status') == 'okay',
+        lambda: f"{d.s('/vdpu@fdb50400', 'compatible')} / {d.s('/vdpu@fdb50400', 'status')}")
+    for n in ('/rkvenc-core@fdbd0000', '/rkvenc-core@fdbe0000'):
+        chk(f"{n} = rkv-encoder-v2-core 且 okay",
+            (lambda n=n: 'rockchip,rkv-encoder-v2-core' in (d.s(n, 'compatible') or '')
+             and d.s(n, 'status') == 'okay'),
+            lambda n=n: f"{d.s(n, 'compatible')} / {d.s(n, 'status')}")
+        chk(f"{n} 有 venc-supply（缺它报 no regulator (venc) found）",
+            (lambda n=n: d.exists_prop(n, 'venc-supply')))
+        chk(f"{n} 有 operating-points-v2",
+            (lambda n=n: d.exists_prop(n, 'operating-points-v2')))
+    for n in ('/iommu@fdbdf000', '/iommu@fdbef000'):
+        chk(f"{n} okay", (lambda n=n: d.s(n, 'status') == 'okay'), lambda n=n: d.s(n, 'status') or '(缺)')
     chk("有 venc-opp-table", lambda: 'operating-points-v2' in (d.s('/venc-opp-table', 'compatible') or ''))
     chk("有 rkvenc-ccu", lambda: 'rkv-encoder-v2-ccu' in (d.s('/rkvenc-ccu', 'compatible') or ''))
+
+    # opp-microvolt 必须是 6 值（2 个 supply × min/target/max）；3 值会让
+    # _parse_named_prop 报 "Invalid number of elements in microvolt property (3) with supplies (2)"
+    # → _of_add_opp_table_v2: Failed to add OPP, -22 → devfreq 不建。
+    def _mv6(path):
+        v = d.nodes.get(path, {}).get('opp-microvolt')
+        return v is not None and len(v) == 24
+
+    chk("GPU opp microvolt 6 值（mali+mem supply）", lambda: _mv6('/gpu-opp-table-h88k/opp-1000000000'))
+    chk("venc opp microvolt 6 值（venc+mem supply）", lambda: _mv6('/venc-opp-table/opp-800000000'))
+    chk("NPU opp microvolt 6 值（rknpu+mem supply）", lambda: _mv6('/npu-opp-table/opp-300000000'))
 
     # ── eMMC / SD / 串口 / 其它外设 ──
     for n in ('/mmc@fe2e0000', '/mmc@fe2c0000'):

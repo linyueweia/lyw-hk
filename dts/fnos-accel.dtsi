@@ -47,7 +47,42 @@
 	upthreshold = <60>;
 	downdifferential = <30>;
 	power-off-delay-ms = <200>;
+	operating-points-v2 = <&gpu_opp_h88k>;
 	status = "okay";
+};
+
+/* GPU 的 opp 表：照官方 T6 的 /gpu-opp-table（8 档，microvolt 6 值＝mali-supply + mem-supply
+ * 各 min/target/max）。缺这张表 GPU 报 _of_add_opp_table_v2: Failed to add OPP, -22。
+ */
+/ {
+	gpu_opp_h88k: gpu-opp-table-h88k {
+		compatible = "operating-points-v2";
+		opp-300000000  { opp-hz = /bits/ 64 <300000000>;  opp-microvolt = <675000 675000 850000 675000 675000 850000>; };
+		opp-400000000  { opp-hz = /bits/ 64 <400000000>;  opp-microvolt = <675000 675000 850000 675000 675000 850000>; };
+		opp-500000000  { opp-hz = /bits/ 64 <500000000>;  opp-microvolt = <675000 675000 850000 675000 675000 850000>; };
+		opp-600000000  { opp-hz = /bits/ 64 <600000000>;  opp-microvolt = <675000 675000 850000 675000 675000 850000>; };
+		opp-700000000  { opp-hz = /bits/ 64 <700000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-800000000  { opp-hz = /bits/ 64 <800000000>;  opp-microvolt = <750000 750000 850000 750000 750000 850000>; };
+		opp-900000000  { opp-hz = /bits/ 64 <900000000>;  opp-microvolt = <800000 800000 850000 800000 800000 850000>; };
+		opp-1000000000 { opp-hz = /bits/ 64 <1000000000>; opp-microvolt = <850000 850000 850000 850000 850000 850000>; };
+	};
+};
+
+
+/ {
+	npu_opp_table: npu-opp-table {
+		compatible = "operating-points-v2";
+		/* 数值照官方 T6 DTB 的 npu-opp-table（supported-hw=0xe9 那一组基础档；
+		 * pvtm/nvmem 校准属性省略——本板 efuse 里没有 npu-opp-info 子节点） */
+		opp-300000000  { opp-hz = /bits/ 64 <300000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-400000000  { opp-hz = /bits/ 64 <400000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-500000000  { opp-hz = /bits/ 64 <500000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-600000000  { opp-hz = /bits/ 64 <600000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-700000000  { opp-hz = /bits/ 64 <700000000>;  opp-microvolt = <700000 700000 850000 700000 700000 850000>; };
+		opp-800000000  { opp-hz = /bits/ 64 <800000000>;  opp-microvolt = <750000 750000 850000 750000 750000 850000>; };
+		opp-900000000  { opp-hz = /bits/ 64 <900000000>;  opp-microvolt = <800000 800000 850000 800000 800000 850000>; };
+		opp-1000000000 { opp-hz = /bits/ 64 <1000000000>; opp-microvolt = <850000 850000 850000 850000 850000 850000>; };
+	};
 };
 
 /* ---------------- NPU：BSP rknpu（三核一个设备） ----------------
@@ -79,6 +114,7 @@
 	iommus = <&rknn_mmu_0>;
 	rknpu-supply = <&vdd_npu_s0>;
 	mem-supply = <&vdd_npu_s0>;
+	operating-points-v2 = <&npu_opp_table>;
 	status = "okay";
 };
 
@@ -171,54 +207,68 @@
 
 &vdec0_mmu { status = "okay"; };
 
-/* ---------------- VEPU 编码核（MPP 的 vpu-encoder-v2）----------------
- * vendor 6.1：vepu@fdb50000 = rockchip,vpu-encoder-v2（与 VDPU 共享 fd b500 块，
- * vdpu 在 +0x400）。主线把它写成 vpu121（解码），MPP 新驱动认不了 → 硬编 -22。
- */
-&{/video-codec@fdb50000} {
-	compatible = "rockchip,vpu-encoder-v2";
-	reg = <0x0 0xfdb50000 0x0 0x400>;
-	interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH 0>;
-	interrupt-names = "irq_vepu";
-	clocks = <&cru ACLK_VPU>, <&cru HCLK_VPU>;
-	clock-names = "aclk_vcodec", "hclk_vcodec";
-	rockchip,normal-rates = <594000000>, <0>;
-	resets = <&cru SRST_A_VPU>, <&cru SRST_H_VPU>;
-	reset-names = "shared_video_a", "shared_video_h";
-	rockchip,skip-pmu-idle-request;
-	rockchip,disable-auto-freq;
-	iommus = <&vpu121_mmu>;
-	rockchip,srv = <&mpp_srv>;
-	rockchip,taskqueue-node = <0>;
-	rockchip,resetgroup-node = <0>;
-	power-domains = <&power RK3588_PD_VDPU>;
-	status = "okay";
-};
 
-/* ---------------- RKVENC0 的 opp table 与 ccu（必须在 rkvenc0 之前定义，
- * 否则 venc probe 时 ccu 还没注册 → "attach ccu failed"；opp 缺失则 devfreq 建不起来
- * → init_opp_table 失败 → probe -ENOMEM 回滚。两者都是 2026-10-27 实测踩到的）
- * opp 值取自官方 T6 DTB 的 venc-opp-table：800MHz / 750mV(min) 750mV 850mV(max)。
+/* ================= VPU 编码链：逐节点照官方 T6 DTB（refs/t6-official.dtb）=================
+ * 官方 T6 里编码是 RKVENC 承担的，VEPU 本身 status=disabled：
+ *   /vepu@fdb50000      disabled   （vpu-encoder-v2）
+ *   /vdpu@fdb50400      okay       （vpu-decoder-v2，与 vepu 共享 0xfdb50 块）
+ *   /rkvenc-ccu         okay
+ *   /rkvenc-core@fdbd0000 /rkvenc-core@fdbe0000  okay + venc-supply/mem-supply = PMIC dcdc-reg4
+ *   /iommu@fdbdf000 /iommu@fdbef000  okay
+ *   /venc-opp-table     800MHz 750–850mV
+ * 与官方的唯一差异是 phandle：官方 dcdc-reg4 在本板标签是 vdd_vdenc_s0；
+ * 节点名/compatible/reg/中断/时钟/复位/速率全部照官方与 vendor 6.1 原文。
  */
 / {
-	venc_opp_table: venc-opp-table {
-		compatible = "operating-points-v2";
-		opp-800000000 {
-			opp-hz = /bits/ 64 <800000000>;
-			opp-microvolt = <750000 750000 850000>;
-		};
+	vepu: vepu@fdb50000 {
+		compatible = "rockchip,vpu-encoder-v2";
+		reg = <0x0 0xfdb50000 0x0 0x400>;
+		interrupts = <GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH 0>;
+		interrupt-names = "irq_vepu";
+		clocks = <&cru ACLK_VPU>, <&cru HCLK_VPU>;
+		clock-names = "aclk_vcodec", "hclk_vcodec";
+		rockchip,normal-rates = <594000000>, <0>;
+		assigned-clocks = <&cru ACLK_VPU>;
+		assigned-clock-rates = <594000000>;
+		resets = <&cru SRST_A_VPU>, <&cru SRST_H_VPU>;
+		reset-names = "shared_video_a", "shared_video_h";
+		rockchip,skip-pmu-idle-request;
+		rockchip,disable-auto-freq;
+		iommus = <&vpu121_mmu>;
+		rockchip,srv = <&mpp_srv>;
+		rockchip,taskqueue-node = <0>;
+		rockchip,resetgroup-node = <0>;
+		power-domains = <&power RK3588_PD_VDPU>;
+		status = "disabled";
+	};
+
+	vdpu: vdpu@fdb50400 {
+		compatible = "rockchip,vpu-decoder-v2";
+		reg = <0x0 0xfdb50400 0x0 0x400>;
+		interrupts = <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH 0>;
+		interrupt-names = "irq_vdpu";
+		clocks = <&cru ACLK_VPU>, <&cru HCLK_VPU>;
+		clock-names = "aclk_vcodec", "hclk_vcodec";
+		rockchip,normal-rates = <594000000>, <0>;
+		assigned-clocks = <&cru ACLK_VPU>;
+		assigned-clock-rates = <594000000>;
+		resets = <&cru SRST_A_VPU>, <&cru SRST_H_VPU>;
+		reset-names = "shared_video_a", "shared_video_h";
+		rockchip,skip-pmu-idle-request;
+		rockchip,disable-auto-freq;
+		iommus = <&vpu121_mmu>;
+		rockchip,srv = <&mpp_srv>;
+		rockchip,taskqueue-node = <0>;
+		rockchip,resetgroup-node = <0>;
+		power-domains = <&power RK3588_PD_VDPU>;
+		status = "okay";
 	};
 
 	rkvenc_ccu: rkvenc-ccu {
 		compatible = "rockchip,rkv-encoder-v2-ccu";
 		status = "okay";
 	};
-};
 
-/* ---------------- RKVENC0 编码核（HEVC，vendor 6.1 地址 fdb d0000）----------------
- * 主线 rk3588-base.dtsi 完全没有这个节点（它只有 VEPU），MPP 的 rkv-encoder-v2 需要它。
- */
-/ {
 	rkvenc0: rkvenc-core@fdbd0000 {
 		compatible = "rockchip,rkv-encoder-v2-core";
 		reg = <0x0 0xfdbd0000 0x0 0x6000>;
@@ -234,11 +284,38 @@
 		rockchip,skip-pmu-idle-request;
 		iommus = <&rkvenc0_mmu>;
 		rockchip,srv = <&mpp_srv>;
+		rockchip,ccu = <&rkvenc_ccu>;
 		rockchip,taskqueue-node = <7>;
 		rockchip,task-capacity = <8>;
-		rockchip,ccu = <&rkvenc_ccu>;
-		operating-points-v2 = <&venc_opp_table>;
 		power-domains = <&power RK3588_PD_VENC0>;
+		operating-points-v2 = <&venc_opp_table>;
+		venc-supply = <&vdd_vdenc_s0>;
+		mem-supply = <&vdd_vdenc_s0>;
+		status = "okay";
+	};
+
+	rkvenc1: rkvenc-core@fdbe0000 {
+		compatible = "rockchip,rkv-encoder-v2-core";
+		reg = <0x0 0xfdbe0000 0x0 0x6000>;
+		interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH 0>;
+		interrupt-names = "irq_rkvenc1";
+		clocks = <&cru ACLK_RKVENC1>, <&cru HCLK_RKVENC1>, <&cru CLK_RKVENC1_CORE>;
+		clock-names = "aclk_vcodec", "hclk_vcodec", "clk_core";
+		rockchip,normal-rates = <500000000>, <0>, <800000000>;
+		assigned-clocks = <&cru ACLK_RKVENC1>, <&cru CLK_RKVENC1_CORE>;
+		assigned-clock-rates = <500000000>, <800000000>;
+		resets = <&cru SRST_A_RKVENC1>, <&cru SRST_H_RKVENC1>, <&cru SRST_RKVENC1_CORE>;
+		reset-names = "video_a", "video_h", "video_core";
+		rockchip,skip-pmu-idle-request;
+		iommus = <&rkvenc1_mmu>;
+		rockchip,srv = <&mpp_srv>;
+		rockchip,ccu = <&rkvenc_ccu>;
+		rockchip,taskqueue-node = <7>;
+		rockchip,task-capacity = <8>;
+		power-domains = <&power RK3588_PD_VENC1>;
+		operating-points-v2 = <&venc_opp_table>;
+		venc-supply = <&vdd_vdenc_s0>;
+		mem-supply = <&vdd_vdenc_s0>;
 		status = "okay";
 	};
 
@@ -250,35 +327,35 @@
 		interrupt-names = "irq_rkvenc0_mmu0", "irq_rkvenc0_mmu1";
 		clocks = <&cru ACLK_RKVENC0>, <&cru HCLK_RKVENC0>;
 		clock-names = "aclk", "iface";
+		rockchip,disable-mmu-reset;
+		rockchip,enable-cmd-retry;
+		rockchip,shootdown-entire;
 		#iommu-cells = <0>;
 		power-domains = <&power RK3588_PD_VENC0>;
 		status = "okay";
 	};
-};
 
-/* ---------------- VDPU 解码核（与 VEPU 共享 fdb50000 块）----------------
- * vendor 6.1：vdpu@fdb50400（VEPU 在 +0x000，VDPU 在 +0x400，同 reset group 0、
- * 同 taskqueue 0、同 iommu、同 PD_VDPU）。上一轮只注册 VEPU 时硬件零响应，
- * 原因是共享块的另一半缺失（rw_sem/reset group 不完整）。
- */
-/ {
-	vdpu: vdpu@fdb50400 {
-		compatible = "rockchip,vpu-decoder-v2";
-		reg = <0x0 0xfdb50400 0x0 0x400>;
-		interrupts = <GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH 0>;
-		interrupt-names = "irq_vdpu";
-		clocks = <&cru ACLK_VPU>, <&cru HCLK_VPU>;
-		clock-names = "aclk_vcodec", "hclk_vcodec";
-		rockchip,normal-rates = <594000000>, <0>;
-		resets = <&cru SRST_A_VPU>, <&cru SRST_H_VPU>;
-		reset-names = "shared_video_a", "shared_video_h";
-		rockchip,skip-pmu-idle-request;
-		rockchip,disable-auto-freq;
-		iommus = <&vpu121_mmu>;
-		rockchip,srv = <&mpp_srv>;
-		rockchip,taskqueue-node = <0>;
-		rockchip,resetgroup-node = <0>;
-		power-domains = <&power RK3588_PD_VDPU>;
+	rkvenc1_mmu: iommu@fdbef000 {
+		compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
+		reg = <0x0 0xfdbef000 0x0 0x40>, <0x0 0xfdbef040 0x0 0x40>;
+		interrupts = <GIC_SPI 102 IRQ_TYPE_LEVEL_HIGH 0>,
+			     <GIC_SPI 103 IRQ_TYPE_LEVEL_HIGH 0>;
+		interrupt-names = "irq_rkvenc1_mmu0", "irq_rkvenc1_mmu1";
+		clocks = <&cru ACLK_RKVENC1>, <&cru HCLK_RKVENC1>;
+		clock-names = "aclk", "iface";
+		rockchip,disable-mmu-reset;
+		rockchip,enable-cmd-retry;
+		rockchip,shootdown-entire;
+		#iommu-cells = <0>;
+		power-domains = <&power RK3588_PD_VENC1>;
 		status = "okay";
+	};
+
+	venc_opp_table: venc-opp-table {
+		compatible = "operating-points-v2";
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <750000 750000 850000 750000 750000 850000>;
+		};
 	};
 };

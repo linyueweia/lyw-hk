@@ -1,0 +1,14 @@
+[Unit]
+Description=Mount fnOS storage pool (H88K SATA/NVMe) to /vol1
+DefaultDependencies=no
+After=local-fs.target
+ConditionPathExists=/dev/mapper/trim_3a7b390b_f799_47ea_b0db_4fb69f905e3c-0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 等 md 阵列/LVM 就绪（最多 30s），再挂 btrfs 顶层子卷
+ExecStart=/bin/sh -c 'for i in $(seq 1 30); do [ -e /dev/mapper/trim_3a7b390b_f799_47ea_b0db_4fb69f905e3c-0 ] && break; sleep 1; done; mountpoint -q /vol1 || mount -t btrfs -o rw,relatime,discard=async,space_cache=v2,subvolid=5 /dev/mapper/trim_3a7b390b_f799_47ea_b0db_4fb69f905e3c-0 /vol1'
+
+[Install]
+WantedBy=local-fs.target
