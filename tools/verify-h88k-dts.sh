@@ -141,6 +141,14 @@ for DTB in "${DTBS[@]}"; do
     done
     ok "RGA = rga3_core0 / rga3_core1 / rga2_core0（均 okay）"
 
+    # 解码核必须按 MPP 新 BSP 命名（rk_vcodec.ko 只认 rkv-decoder-v2，不认 rk3588-vdec）
+    VDCOMP="$(fdtget -t s "$DTB" /video-codec@fdc38000 compatible 2>/dev/null || true)"
+    [[ "$VDCOMP" == *rockchip,rkv-decoder-v2* ]] || fail "/video-codec@fdc38000 compatible 应为 rockchip,rkv-decoder-v2（MPP），实际 '$VDCOMP'"
+    [[ "$(fdtget -t s "$DTB" /video-codec@fdc38000 status 2>/dev/null || echo okay)" == "okay" ]] || fail "/video-codec@fdc38000 应为 okay（硬件解码核）"
+    fdtget "$DTB" /video-codec@fdc38000 rockchip,srv >/dev/null 2>&1 || fail "rkvdec0 缺 rockchip,srv（MPP 挂不到 mpp-srv）"
+    fdtget "$DTB" /video-codec@fdc38000 rockchip,taskqueue-node >/dev/null 2>&1 || fail "rkvdec0 缺 rockchip,taskqueue-node"
+    ok "VPU 解码核 = rockchip,rkv-decoder-v2（rockchip,srv + taskqueue-node 齐）"
+
     # 编解码核（物理块命名沿用内核树，MPP 经 mpp-srv 汇总）
     N_VDEC="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP" || true; } | wc -l | tr -d ' ')"
     N_VENC="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP" || true; } | wc -l | tr -d ' ')"

@@ -139,6 +139,11 @@ def build(d):
     for n, want in (('/rga@fdb60000', 'rga3_core0'), ('/rga@fdb70000', 'rga3_core1'), ('/rga@fdb80000', 'rga2_core0')):
         chk(f"{n} = {want}", (lambda n=n, w=want: w in (d.s(n, 'compatible') or '')), lambda n=n: d.s(n, 'compatible'))
         chk(f"{n} okay", (lambda n=n: d.s(n, 'status') == 'okay'), lambda n=n: d.s(n, 'status') or '(缺)')
+    chk("rkvdec0 compatible=rkv-decoder-v2（MPP）",
+        lambda: 'rockchip,rkv-decoder-v2' in (d.s('/video-codec@fdc38000', 'compatible') or ''),
+        lambda: d.s('/video-codec@fdc38000', 'compatible'))
+    chk("rkvdec0 有 rockchip,srv", lambda: d.exists_prop('/video-codec@fdc38000', 'rockchip,srv'))
+    chk("rkvdec0 有 rockchip,taskqueue-node", lambda: d.exists_prop('/video-codec@fdc38000', 'rockchip,taskqueue-node'))
 
     # ── iommu 命名 ──
     txt = d.raw

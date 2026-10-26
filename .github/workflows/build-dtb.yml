@@ -62,7 +62,8 @@ jobs:
           done
           echo "---- 加速器命名（飞牛树外驱动 of_match）----"
           for s in "rockchip,mpp-service" "rockchip,rk3588-rknpu" "rockchip,rk3588-mali-csf" \
-                   "arm,mali-valhall" "clk_mali" "rockchip,rga3_core0" "rockchip,rga3_core1" "rockchip,rga2_core0"; do
+                   "arm,mali-valhall" "clk_mali" "rockchip,rga3_core0" "rockchip,rga3_core1" \
+                   "rockchip,rga2_core0" "rockchip,rkv-decoder-v2"; do
             grep -q "$s" /tmp/h88k.dts && echo "OK: $s" || { echo "!! 缺 $s（树外驱动 match 不上，加速器不会起来）"; exit 1; }
           done
 
