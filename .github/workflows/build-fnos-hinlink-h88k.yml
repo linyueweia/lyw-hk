@@ -76,10 +76,11 @@ jobs:
           bash build-dtb.sh
           ls -la dist/
 
-      - name: DTB 门禁（板级 + SoC 命名 + 改造项）
+      - name: DTB 门禁（板级 + SoC 命名 + 改造项，逐节点断言）
         run: |
           set -e
-          bash tools/verify-dtb.sh
+          chmod +x tools/verify-h88k-dts.sh
+          bash tools/verify-h88k-dts.sh dist/rk3588-hlink-h88k.dtb
 
       - name: Fetch and unpack fnOS base image
         run: |

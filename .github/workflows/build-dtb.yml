@@ -1,0 +1,87 @@
+name: Build DTB only (lyw-hk)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'dts/**'
+      - 'build-dtb.sh'
+      - 'tools/verify-h88k-dts.sh'
+
+permissions:
+  contents: write
+
+jobs:
+  build-dtb:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends device-tree-compiler
+
+      - name: 编译 DTB（飞牛内核树 unifreq/linux-6.18.y）
+        run: |
+          chmod +x build-dtb.sh
+          ./build-dtb.sh
+
+      - name: 校验 DTB 完整性（板级 + SoC 命名 + 改造项）
+        run: |
+          chmod +x tools/verify-h88k-dts.sh
+          bash tools/verify-h88k-dts.sh dist/rk3588-hlink-h88k.dtb
+
+      - name: 与仓库 dist 对比（防陈旧）
+        run: |
+          set -e
+          A="$(sha256sum dist/rk3588-hlink-h88k.dtb | awk '{print $1}')"
+          echo "现编产物 sha256 = $A"
+          if [ -f refs/dist-committed.sha256 ]; then
+            B="$(cat refs/dist-committed.sha256)"
+            echo "仓库登记 sha256 = $B"
+            if [ "$A" != "$B" ]; then
+              echo "::warning::现编 DTB 与仓库登记的 dist 不一致（内核树 dtsi 可能已更新）—— 请把新产物提交回 dist/ 并更新 refs/dist-committed.sha256"
+            else
+              echo "✓ 与仓库登记一致"
+            fi
+          else
+            echo "（refs/dist-committed.sha256 不存在，跳过对比）"
+          fi
+
+      - name: 生成并输出校验文件
+        run: |
+          sha256sum dist/rk3588-hlink-h88k.dtb > dtb-sha256sums.txt
+          cat dtb-sha256sums.txt
+          dtc -I dtb -O dts dist/rk3588-hlink-h88k.dtb -o /tmp/h88k.dts
+          echo "---- 关键节点抽查 ----"
+          for node in "ethernet@fe1b0000" "mmc@fe2e0000" "mmc@fe2d0000" "pcie@fe150000" "pmic@0" "gpio-leds"; do
+            grep -q "$node" /tmp/h88k.dts && echo "OK: $node" || { echo "!! 缺少 $node"; exit 1; }
+          done
+
+      - name: 上传 DTB 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rk3588-hlink-h88k-dtb
+          path: |
+            dist/rk3588-hlink-h88k.dtb
+            dtb-sha256sums.txt
+          retention-days: 7
+
+      - name: 发布 Release（仅标签推送时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/rk3588-hlink-h88k.dtb
+            dtb-sha256sums.txt
+          body: |
+            HINLINK H88K (RK3588) fnOS 用设备树 DTB（仅 DTB，不含固件）
+
+            - 构建：clone unifreq/linux-6.18.y（飞牛 6.18.18.cXXX-trim 的来源树）
+              → 放入飞牛内核树自带的 rk3588-hlink.dtsi + rk3588-hlink-h88k.dts
+              → make ARCH=arm64 dtbs
+            - 唯一改造：pmic@0(rk806) 补 rockchip,system-power-controller（poweroff 真断电）
+            - 门禁：model/gmac(LED)/PMIC/iommu(rockchip,rk3588-iommu ≥10、无 iommu-v2)/PCIe 五口
+            - fdtfile=rockchip/rk3588-hlink-h88k.dtb，串口 console=ttyS2,1500000
