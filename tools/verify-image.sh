@@ -143,7 +143,6 @@ if ub and os.path.exists(ub):
     seg = d[17408:17408 + len(u)]
     assert len(seg) == len(u), f"镜像载荷区不足：{len(seg)} < {len(u)}"
     assert seg == u, f"镜像 [17408,17408+{len(u)}) 与传入 UBOOT 不一致"
-    print(f"  ✓ 与传入 UBOOT 逐字节一致（{len(u)} B）"
     print(f"  ✓ 与传入 UBOOT 逐字节一致（{ver.group().decode() if ver else '版本串未找到'}）")
 else:
     print(f"  ✓ 前导区含 RKNS+FIT（{ver.group().decode() if ver else '版本串未找到'}）")
