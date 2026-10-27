@@ -161,6 +161,18 @@ for DTB in "${DTBS[@]}"; do
         || fail "/iommu@fdab9000 compatible 应含 rockchip,iommu-v2（官方 T6 形态），实际 '$ICOMP'"
     ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位；iommu@fdab9000 已合并三核 MMU 四 bank + 3 中断 + 6 时钟；附属 IOMMU 按 T6 关闭）"
 
+    # 已知且**故意保留**的 dmesg 记录（用户 2026-10-28 拍板：按官方方案，不改驱动）：
+    #   dmesg 里必然出现 3 条 `RKNPU: error -EBUSY: can't request region`（fdab0000/fdac0000/fdad0000）。
+    #   机制：mainline rockchip-iommu.c 的 probe 对**每个** reg bank 调 devm_ioremap_resource
+    #   （= request_mem_region + ioremap，见 /proc/iomem 里 4 段 fdab9000/fdaba000/fdaca000/fdada000
+    #   均归 fdab9000.iommu）；NPU 在 4.38s 才 probe，其 64KiB 窗口内含这些 MMU 寄存器 →
+    #   request_mem_region 必失败，驱动 fallback 到 ioremap（功能无损）。
+    #   官方 T6 的 npu reg 同样是 3 段 64KiB → 官方同款 dmesg 也有这 3 条；
+    #   console 看不到只是因为 loglevel=1 < KERN_ERR(3)（dmesg 不受 loglevel 过滤）。
+    #   **不要**为消这 3 条去改驱动（devm_ioremap_resource→devm_ioremap）或拆 NPU reg 窗口：
+    #   那会变成跟内核版本绑定的自维护 patch，且让 DTB 偏离官方 T6。判定标准是功能：
+    #   三核 core_mask=7 各 10/10 成功、job timeout 0、soft reset 0。
+
     for pair in "/rga@fdb60000:rockchip,rga3_core0" "/rga@fdb70000:rockchip,rga3_core1" "/rga@fdb80000:rockchip,rga2_core0"; do
         n="${pair%%:*}"; want="${pair#*:}"
         got="$(fdtget -t s "$DTB" "$n" compatible 2>/dev/null || true)"
