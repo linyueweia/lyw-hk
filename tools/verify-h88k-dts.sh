@@ -12,7 +12,8 @@
 #     （LED blue:net/amber:sata/green:user/red:work、gmac0 rgmii-rxid + tx_delay=0x44、
 #       PMIC rk806、stdout serial2:1500000n8）
 #   · SoC 级：官方内核 vmlinuz-6.18.18.c1145-trim 的 of_match —— iommu 必须
-#     rockchip,rk3588-iommu（iommu-v2 在官方内核里 0 处）
+#     rockchip,rk3588-iommu；rockchip,iommu-v2 是 BSP 时代兼容串（mainline of_match 无），
+#     官方 T6 DTB 在 iommu@fdab9000 上带着它，故只允许出现在该节点（2026-10-28 改判）
 #==========================================================================
 set -euo pipefail
 # ERR trap：set -e 静默退出时至少告诉我们死在哪一行（踩过：grep 无匹配 + pipefail → 无声 exit 1）
@@ -200,8 +201,15 @@ for DTB in "${DTBS[@]}"; do
     N_OLD="$( (grep -o 'rockchip,iommu-v2' "$TMP" || true) | wc -l | tr -d ' ')"
     echo "  计数: rk3588-iommu=$N_NEW  iommu-v2=$N_OLD"
     [[ "${N_NEW:-0}" -ge 10 ]] || fail "iommu 命名不是官方内核认的 rockchip,rk3588-iommu（仅 ${N_NEW:-0} 处）"
-    [[ "${N_OLD:-0}" -eq 0 ]] || fail "DTB 仍有 rockchip,iommu-v2（${N_OLD:-0} 处）—— 官方内核 of_match 里 0 处"
-    ok "rk3588-iommu ×$N_NEW，iommu-v2 残留 0"
+    # 官方 T6 的 iommu@fdab9000 带 "rockchip,iommu-v2"。mainline 的 rk_iommu of_match 里确实
+    # 没有它（那是 BSP 时代的兼容串，mainline 忽略、无害），此前本门禁因此要求「全 DTB 0 处」，
+    # 与官方 T6 直接冲突（2026-10-28 run#22 就是这么红的）。
+    # 现改为：**只允许出现在 iommu@fdab9000**（官方形态）；出现在其它 iommu 节点仍判红 ——
+    # 那样才是「自己加的」，会破坏「逐节点对齐官方参照件」这条线。
+    N_V2_ON_MMU0="$(fdtget -t s "$DTB" /iommu@fdab9000 compatible 2>/dev/null | grep -c 'rockchip,iommu-v2' || true)"
+    [[ "${N_OLD:-0}" -le "${N_V2_ON_MMU0:-0}" ]] \
+        || fail "rockchip,iommu-v2 只允许出现在 iommu@fdab9000（官方 T6 形态）：全 DTB ${N_OLD:-0} 处，而该节点仅 ${N_V2_ON_MMU0:-0} 处"
+    ok "rk3588-iommu ×$N_NEW；iommu-v2 ${N_OLD:-0} 处（限 iommu@fdab9000，官方 T6 形态）"
 
     echo "-- 7) PCIe / PHY（NVMe + 双 2.5G 的前提）--"
     # 本板实际启用（判据＝本板 iNextOS 实跑 DTB，不是推断）：
