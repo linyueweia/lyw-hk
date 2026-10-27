@@ -136,6 +136,15 @@ def build(d):
     chk("NPU interrupt-names 含 npu0_irq", lambda: 'npu0_irq' in (d.s('/npu@fdab0000', 'interrupt-names') or ''))
     for n in ('/npu@fdac0000', '/npu@fdad0000'):
         chk(f"{n} disabled（三核合一）", (lambda n=n: d.s(n, 'status') == 'disabled'), lambda n=n: d.s(n, 'status') or '(缺)')
+    # 2026-10-27 事故防回归：NPU core1/core2 的两颗附属 IOMMU 必须 disabled（对齐官方 T6）。
+    # 打开它们 → rk_iommu 抢占与 npu1_irq/npu2_irq 共享的中断线 → 任务派到 core1/2 永不回中断 →
+    # job timeout → soft reset 死循环，相册 AI 卡死零进度（实测复位 311 次）。
+    chk("/iommu@fdaca000 disabled（对齐官方 T6，开了会抢 NPU core1 中断线）",
+        lambda: d.s('/iommu@fdaca000', 'status') == 'disabled', lambda: d.s('/iommu@fdaca000', 'status') or '(缺)')
+    chk("/iommu@fdada000 disabled（对齐官方 T6，开了会抢 NPU core2 中断线）",
+        lambda: d.s('/iommu@fdada000', 'status') == 'disabled', lambda: d.s('/iommu@fdada000', 'status') or '(缺)')
+    chk("/iommu@fdab9000 okay（core0 唯一在用的 NPU MMU）",
+        lambda: d.s('/iommu@fdab9000', 'status') == 'okay', lambda: d.s('/iommu@fdab9000', 'status') or '(缺)')
     for n, want in (('/rga@fdb60000', 'rga3_core0'), ('/rga@fdb70000', 'rga3_core1'), ('/rga@fdb80000', 'rga2_core0')):
         chk(f"{n} = {want}", (lambda n=n, w=want: w in (d.s(n, 'compatible') or '')), lambda n=n: d.s(n, 'compatible'))
         chk(f"{n} okay", (lambda n=n: d.s(n, 'status') == 'okay'), lambda n=n: d.s(n, 'status') or '(缺)')

@@ -131,7 +131,16 @@ for DTB in "${DTBS[@]}"; do
         [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)" == "disabled" ]] \
             || fail "$n 应保持 disabled（BSP 驱动把三核当一个设备）"
     done
-    ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位）"
+    # 2026-10-27 事故防回归：NPU core1/core2 的两颗附属 IOMMU 必须 disabled（对齐官方 T6）。
+    # 打开 → rk_iommu 抢占与 npu1_irq/npu2_irq 共享的中断线 → 任务派到 core1/2 永不回完成中断
+    # → RKNPU job timeout → soft reset 死循环，相册 AI 卡死零进度（实机复位 311 次）。
+    for n in /iommu@fdaca000 /iommu@fdada000; do
+        [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null || true)" == "disabled" ]] \
+            || fail "$n 应为 disabled（官方 T6 即 disabled；打开会抢占 NPU core1/2 的共享中断线 → job timeout 死循环）"
+    done
+    [[ "$(fdtget -t s "$DTB" /iommu@fdab9000 status 2>/dev/null || true)" == "okay" ]] \
+        || fail "/iommu@fdab9000 应为 okay（rknpu 唯一在用的 NPU MMU）"
+    ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位；附属 IOMMU 已按 T6 关闭）"
 
     for pair in "/rga@fdb60000:rockchip,rga3_core0" "/rga@fdb70000:rockchip,rga3_core1" "/rga@fdb80000:rockchip,rga2_core0"; do
         n="${pair%%:*}"; want="${pair#*:}"
