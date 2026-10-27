@@ -79,6 +79,8 @@ def repair(f, last, mbr, prim, entries, off_mbr=0):
     struct.pack_into("<I", prim, 12, 92)
     struct.pack_into("<I", prim, 88, crc32(entries))   # 项CRC以内容为准
     struct.pack_into("<I", prim, 16, hdr_crc(prim))    # 头CRC@0x10 最后算
+    # 主项（--renew-partuuid 会改内容，必须回写；否则声明 CRC 与磁盘不符）
+    f.seek(off_mbr + 2*512); f.write(entries)
     # 备份项
     f.seek(off_mbr + b_lba*512); f.write(entries)
     # 备份头
@@ -92,29 +94,69 @@ def repair(f, last, mbr, prim, entries, off_mbr=0):
     f.seek(off_mbr+512); f.write(prim)
     f.flush(); os.fsync(f.fileno())
 
+def renew_partuuid(entries, idx):
+    """把第 idx 个分区项（1-based）的 unique GUID 换成新的随机值。
+    用途：镜像与板上已有系统同源时 PARTUUID 会撞车（内核先挂到 eMMC 那个），
+    而 fnOS 的 boot.cmd 是 `part uuid` 现场取值，所以换 GUID 不需要改任何引导文件。"""
+    import uuid
+    off = (idx - 1) * 128
+    if off + 128 > len(entries):
+        raise SystemExit(f"分区号 {idx} 超出项数组（共 {len(entries)//128} 项）")
+    if entries[off:off + 16] == b"\x00" * 16:
+        raise SystemExit(f"分区 {idx} 不存在（类型 GUID 全零）")
+    old = uuid.UUID(bytes_le=bytes(entries[off + 16:off + 32]))
+    new = uuid.uuid4()
+    entries[off + 16:off + 32] = new.bytes_le
+    print(f"  · 分区 {idx} PARTUUID: {old} -> {new}")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if not args: print(__doc__); return 2
-    path = args[0]; do_apply = "--apply" in sys.argv
-    last = dev_size(path)//512 - 1
+    if not args:
+        print(__doc__)
+        return 2
+    path = args[0]
+    do_apply = "--apply" in sys.argv
+    renew = None
+    for a in sys.argv[1:]:
+        if a.startswith("--renew-partuuid="):
+            renew = int(a.split("=", 1)[1])
+    last = dev_size(path) // 512 - 1
     mode = "APPLY" if do_apply else "诊断"
-    print(f"[gpt-fix] {path} 末扇区={last} 模式={mode}")
+    print(f"[gpt-fix] {path} 末扇区={last} 模式={mode}"
+          + (f" 换分区{renew}的PARTUUID" if renew else ""))
     with open(path, "r+b" if do_apply else "rb") as f:
         probs, prim, entries = scan(f, last)
+        need = bool(probs) or bool(renew)
         if probs:
-            for p in probs: print("  ✗", p)
-            if not do_apply: return 1
-            if not entries: print("  ❌ 主项读取失败，放弃修复"); return 1
-            repair(f, last, bytearray(open(path,"rb").read(512)) if False else _mbr(f), prim, entries)
-        else:
+            for p in probs:
+                print("  ✗", p)
+        elif not renew:
             print("  ✓ GPT 全字段自洽（主/备/MBR）")
+        if not need:
+            return 0
+        if not entries:
+            print("  ❌ 主项读取失败，放弃修复")
+            return 1
+        if not do_apply:
+            if renew:
+                print(f"  [dry-run] 将把分区 {renew} 的 PARTUUID 换成新随机值（其余字段一并按规范重算）")
+            else:
+                print("  [dry-run] 用 --apply 修复（只动 GPT 元数据，分区内容零修改）")
+            return 1
+        ents = bytearray(entries)
+        if renew:
+            renew_partuuid(ents, renew)
+        repair(f, last, _mbr(f), prim, bytes(ents))
     # 修复后复检
     with open(path, "rb") as f:
         probs2, _, _ = scan(f, last)
     if probs2:
-        for p in probs2: print("  ✗ 复检:", p)
+        for p in probs2:
+            print("  ✗ 复检:", p)
         return 1
-    if probs: print("  ✓ 修复后复检通过")
+    if need:
+        print("  ✓ 修复后复检通过")
     return 0
 
 def _mbr(f):

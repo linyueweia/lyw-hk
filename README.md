@@ -76,3 +76,36 @@ sudo -E DTB=dist/rk3588-hlink-h88k.dtb \
 4. 三块网卡都没有出厂 MAC → 按 SoC 序列号 + 设备路径派生固定 MAC
 5. 3.6G 镜像写进 58G eMMC 必须把 GPT 备份表搬到盘尾
 6. 不要加 extlinux、不要塞 initrd —— 官方链路只有 `boot.scr → fnEnv`
+
+
+---
+
+## 刷写完必做：GPT 按目标盘适配（否则卡在 `Waiting for root device`）
+
+镜像只写到盘的头部，GPT 主头里的 `alternate_lba` / `last_usable` 仍指向**镜像文件末尾**。
+刷进比镜像大的卡（几乎所有 TF/SD 卡）后：
+
+- **U-Boot 宽容**：照样从 `mmcblk1:1` 读 `boot.scr`，引导看起来完全正常；
+- **Linux 内核严格**：`alternate_lba` 不在设备末尾就拒绝整张分区表 → `mmcblk1:` 后面
+  **不列 p1 p2** → 卡死 `Waiting for root device PARTUUID=...`（无 panic、无报错、干等）。
+
+**刷完对目标盘跑一次**（三仓通用同一份工具）：
+
+```sh
+# 1) 按目标盘真实容量重算 GPT 全部字段（主/备头 + 分区项 + 保护 MBR），并把 rootfs 的 PARTUUID 换新
+python3 tools/gpt-fix.py /dev/sdX --apply --renew-partuuid=2
+
+# 2) 判据
+fdisk -l /dev/sdX                    # 必须能看到 p1 / p2
+python3 tools/gpt-fix.py /dev/sdX    # 必须输出「GPT 全字段自洽（主/备/MBR）」
+```
+
+`--renew-partuuid=2` 的作用：本仓镜像与板上 eMMC 里的系统同源时 `rootfs` 的 PARTUUID 相同，
+内核会**先挂到 eMMC 那个**（起的是旧系统而不是卡上的）。换掉 GUID 即可，
+`boot.cmd` 用 `part uuid` 现场取值，**不需要改任何引导文件**。
+
+构建期已有同一道门禁（装配末尾 `gpt-fix.py --apply`），保证**镜像自身**自洽；
+上面这一步是**设备侧**适配，两者都要跑。
+
+> 2026-10-27 实机两次踩坑：T68M 与 K1 都表现为「U-Boot 正常、内核干等根设备」，
+> 日志特征 = `mmcblk1: mmc1:… 14.7 GiB` 之后**没有** `mmcblk1: p1 p2` 这一行。
