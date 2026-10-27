@@ -213,9 +213,9 @@ for DTB in "${DTBS[@]}"; do
 
     echo "-- 9) 改造项与残留检查 --"
     if fdtget "$DTB" /reserved-memory/cma reg >/dev/null 2>&1; then
-        fail "reserved-memory/cma 固定区仍在（会把 CMA 压死在 256M，cmdline cma=2G 无效）"
+        fail "reserved-memory/cma 固定区仍在（会把 CMA 压死在 256M，cmdline cma=256M 无效）"
     fi
-    ok "无 cma 固定区（CMA 由 cmdline cma=2G 决定）"
+    ok "无 cma 固定区（CMA 由 cmdline cma=256M 决定）"
     for bad in "rockchip,iommu-v2" "rockchip,mipi-dcphy" "rockchip,rk3588-hdmirx-ctrler"; do
         if grep -q "$bad" "$TMP"; then
             echo "  ⚠ 保留 $bad（官方内核无对应驱动，节点保留无害，仅提示）"

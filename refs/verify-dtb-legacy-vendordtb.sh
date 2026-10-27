@@ -76,11 +76,11 @@ if dtc -I dtb -O dts "$DTB" 2>/dev/null | grep -q 'compatible = "rockchip,iommu-
     fail "dist 里仍有 rockchip,iommu-v2（主线 6.18 不会 probe）"
 fi
 ok "IOMMU compatible = rockchip,rk3588-iommu ×$IOMMU_DIST（无 iommu-v2 残留）"
-# 改造①：cma 固定区必须已删（CMA 交给 cmdline cma=2G）
+# 改造①：cma 固定区必须已删（CMA 交给 cmdline cma=256M）
 if fdtget "$DTB" /reserved-memory/cma reg >/dev/null 2>&1; then
-    fail "reserved-memory/cma 仍在（会把 CMA 压死在 256M，cmdline cma=2G 无效）"
+    fail "reserved-memory/cma 仍在（会把 CMA 压死在 256M，cmdline cma=256M 无效）"
 fi
-ok "reserved-memory/cma 已删（CMA 由 fnEnv extraargs=cma=2G 决定）"
+ok "reserved-memory/cma 已删（CMA 由 fnEnv extraargs=cma=256M 决定）"
 # 改造②：PMIC 断电属性必须在
 PMIC_PATH="$(fdtget -t s "$DTB" /spi@feb20000/rk806single@0 compatible 2>/dev/null || true)"
 [[ "$PMIC_PATH" == *rk806* ]] || fail "PMIC 节点 compatible 不是 rk806（路径变了？）"

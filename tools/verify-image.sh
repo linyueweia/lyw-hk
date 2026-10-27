@@ -110,10 +110,24 @@ for n in /gpu@fb000000 /vop@fdd90000 /hdmi@fde80000 /hdmi@fdea0000; do
     [[ "$(fdtget -t s "$F" "$n" status)" == "okay" ]] || fail "$n 应 okay（与 T6 一致）"
 done
 ok "GPU / VOP / HDMI0 / HDMI1 均 okay"
-for n in /npu@fdab0000 /npu@fdac0000 /npu@fdad0000 /video-codec@fdc38000 /video-codec@fdc40000 /rga@fdb60000 /rga@fdb70000; do
-    [[ "$(fdtget -t s "$F" "$n" status)" == "disabled" ]] || fail "$n 应 disabled（T6 亦然）"
+# 2026-10-27 更新：这批节点已按官方 T6 全部 okay 化（npu/rga/rkvdec/av1 真机可绑驱动、
+# 硬解/编码实测 rc=0）。旧断言"全部 disabled"是 10-26 前的口径，已作废。
+# T6 真值：npu@fdab0000 okay / rkvdec(rkv-decoder-v2) okay / rga3×2+rga2 okay / av1(av1-decoder) okay
+for n in /npu@fdab0000 /video-codec@fdc38000 /rga@fdb60000 /rga@fdb70000; do
+    [[ "$(fdtget -t s "$F" "$n" status)" == "okay" ]] || fail "$n 应 okay（对齐官方 T6，10-27 起真机可绑驱动）"
 done
-ok "NPU 与多余 vdec/rga 均 disabled（与 T6 一致）"
+ok "NPU / rkvdec / rga3×2 均 okay（与 T6 一致，可绑 rknpu/mpp_rkvdec2/rga3）"
+# 独立核节点（npu@fdac0000/fdad0000）与多余 vdec 必须关（BSP 驱动把 NPU 三核当一个设备）
+for n in /npu@fdac0000 /npu@fdad0000; do
+    [[ "$(fdtget -t s "$F" "$n" status)" == "disabled" ]] || fail "$n 应 disabled（三核合一，独立核节点须关）"
+done
+ok "npu 独立核节点 disabled（三核合一）"
+# AV1 解码核必须可绑（10-27 修复：主线命名 + 无 srv + verisilicon iommu → 0 绑定）
+AVC="$(fdtget -t s "$F" /video-codec@fdc70000 compatible 2>/dev/null || true)"
+[[ "$AVC" == *rockchip,av1-decoder* ]] || fail "av1d compatible 应含 rockchip,av1-decoder（飞牛 rk_vcodec 唯一认的 av1 串），实际 '$AVC'"
+AVI="$(fdtget -t s "$F" /iommu@fdca0000 compatible 2>/dev/null || true)"
+[[ "$AVI" == *rockchip,iommu-av1d* ]] || fail "av1 iommu 应含 rockchip,iommu-av1d（飞牛内建 av1-iommu 唯一认的串），实际 '$AVI'"
+ok "av1d + av1 iommu compatible 已 T6 化（可绑 mpp_av1dec/rk_iommu）"
 NV="$( { grep -o 'rockchip,rk3588-vpu121' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 NE="$( { grep -o 'rockchip,rk3588-vepu121' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 [[ "${NV:-0}" -ge 1 ]] && [[ "${NE:-0}" -ge 4 ]] && ok "编解码核 vpu121 ×$NV / vepu121 ×$NE" || fail "编解码核数量异常"
