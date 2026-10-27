@@ -18,12 +18,12 @@ set -u
 
 APPDIRS="/vol1/@appcenter"
 
-# /vol1 是存储池，可能晚于本单元挂载 —— 最多等 90 秒
-for _ in $(seq 1 45); do
-    [ -d "$APPDIRS" ] && break
-    sleep 2
-done
-[ -d "$APPDIRS" ] || exit 0     # 没有存储池/没装 ai-runtime：静默退出，不算失败
+# /vol1 是 fnOS 存储池，由 trim_init.service 挂载（H88K 上约 2 分钟）。
+# 本单元已 After=trim_init.service，所以正常情况这里已挂好；
+# 万一还没挂，**立刻退出不等待** —— 库默认值只在首次需要修，晚一轮开机修也不影响功能，
+# 但绝不能让本单元去轮询堵住启动链（第一版的 90 秒轮询把 ai_manager 一起堵了）。
+mountpoint -q /vol1 || exit 0
+[ -d "$APPDIRS" ] || exit 0
 
 changed=0
 for PY in "$APPDIRS"/trim.ai-runtime-rk35*/penv/lib/python*/site-packages/rknnlite/api/rknn_lite.py; do

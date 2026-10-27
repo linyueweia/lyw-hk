@@ -1,16 +1,17 @@
 [Unit]
 Description=H88K: pin rknnlite default core_mask to NPU CORE_0 (official T6 DTB only enables core0)
 Documentation=https://github.com/linyueweia/lyw-hk
-# /vol1 是 fnOS 存储池，ai-runtime 应用装在 /vol1/@appcenter
-After=local-fs.target
-# 在 AI 服务起来之前改掉库默认值，避免先随机挑到 core1 再超时
-Before=ai_manager.service
+# /vol1（fnOS 存储池）由 trim_init.service 挂载，ai-runtime 应用就在 /vol1/@appcenter。
+# 必须等 trim_init 完成，否则库文件还看不到；同时**不要**加 Before=ai_manager.service ——
+# 第一版那样写会把这台的启动链拖慢 90 秒（h88k-fix-rknn-core 1min30s、trim_init 2min19s 叠加）。
+After=local-fs.target trim_init.service
 ConditionPathExists=/usr/local/sbin/h88k-fix-rknn-core.sh
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/h88k-fix-rknn-core.sh
-TimeoutStartSec=180
+# 脚本自身零等待（/vol1 未挂就直接 exit 0），这里只是兜底
+TimeoutStartSec=60
 RemainAfterExit=no
 
 [Install]
