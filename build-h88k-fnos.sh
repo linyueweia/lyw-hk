@@ -189,6 +189,28 @@ if [[ -L "$ROOT_MNT/etc/systemd/system/pwm-fancontrol.service" ]]; then
 fi
 ok "pwm-fancontrol 未被 mask（风扇可正常控速）"
 
+# 3.6b) NPU 只用 core0 的钉死件（2026-10-28 H88K 实机彻查）
+#   官方 T6 DTB（与本板逐项一致）只启用 core0：npu@fdac0000/fdad0000 + iommu@fdaca000/fdada000
+#   全 disabled，但 rknnlite 上游默认 core_mask = NPU_CORE_AUTO（源码注释："run on NPU core randomly"）
+#   → 驱动随机挑到 core1/core2（节点 disabled、完成中断永不触发）→ 每次等满 142s
+#   → RKNPU job timeout + soft reset 死循环，trim.txt2vec/img2vec 卡在 rknpu_submit_ioctl。
+#   实测：CORE_0 only 10/10 成功 5.6s 零超时；AUTO 必现 failed to submit + timeout。
+#   该库文件在 /vol1/@appcenter（首启才下载的应用里），构建期改不到 → 用首启 oneshot 修；
+#   **DTB 一个字节不动**（完全跟随官方 T6 的意图）。
+install -Dm755 "$SELF_DIR/assets/h88k/h88k-fix-rknn-core.sh" \
+    "$ROOT_MNT/usr/local/sbin/h88k-fix-rknn-core.sh" || fail "装 h88k-fix-rknn-core.sh 失败"
+install -Dm644 "$SELF_DIR/assets/h88k/h88k-fix-rknn-core.service" \
+    "$ROOT_MNT/etc/systemd/system/h88k-fix-rknn-core.service" || fail "装 h88k-fix-rknn-core.service 失败"
+mkdir -p "$ROOT_MNT/etc/systemd/system/multi-user.target.wants"
+ln -sf ../h88k-fix-rknn-core.service \
+    "$ROOT_MNT/etc/systemd/system/multi-user.target.wants/h88k-fix-rknn-core.service" \
+    || fail "使能 h88k-fix-rknn-core.service 失败"
+[[ -x "$ROOT_MNT/usr/local/sbin/h88k-fix-rknn-core.sh" ]] \
+    || fail "自证：h88k-fix-rknn-core.sh 未就位或不可执行"
+[[ -L "$ROOT_MNT/etc/systemd/system/multi-user.target.wants/h88k-fix-rknn-core.service" ]] \
+    || fail "自证：h88k-fix-rknn-core.service 未 enable"
+ok "已装 NPU core0 钉死件（rknnlite 默认 CORE_0，首启自动应用；DTB 不动）"
+
 sync
 umount "$ROOT_MNT"; rmdir "$ROOT_MNT"
 umount "$BOOT_MNT"; losetup -d "$LOOP"; rmdir "$BOOT_MNT"; LOOP=""; trap - EXIT
