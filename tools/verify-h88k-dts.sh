@@ -140,7 +140,25 @@ for DTB in "${DTBS[@]}"; do
     done
     [[ "$(fdtget -t s "$DTB" /iommu@fdab9000 status 2>/dev/null || true)" == "okay" ]] \
         || fail "/iommu@fdab9000 应为 okay（rknpu 唯一在用的 NPU MMU）"
-    ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位；附属 IOMMU 已按 T6 关闭）"
+    # 官方 T6 的真做法：三核 MMU 全部合并进 iommu@fdab9000 这一个节点。
+    # 缺了 core1/core2 的 bank，驱动仍按 efuse 认定三核可用（mask 0x7），但 core1/2 的
+    # MMU 无人管理 → 完成中断永不触发 → 142s job timeout + soft reset 死循环
+    # （2026-10-28 实机事故：补 bank 前三核必挂，补齐后 core1-only/core2-only/三核全通）。
+    IREG_WORDS="$(fdtget -t x "$DTB" /iommu@fdab9000 reg 2>/dev/null | wc -w || echo 0)"
+    [[ "$IREG_WORDS" -ge 16 ]] \
+        || fail "/iommu@fdab9000 reg 应含 4 个 bank（16 words = fdab9000/fdaba000/fdaca000/fdada000），实际 $IREG_WORDS words"
+    IINTS="$(fdtget -t s "$DTB" /iommu@fdab9000 interrupt-names 2>/dev/null | tr '\n' ' ' || true)"
+    for s in npu0_mmu npu1_mmu npu2_mmu; do
+        [[ "$IINTS" == *"$s"* ]] || fail "/iommu@fdab9000 interrupt-names 缺 $s（实际 '$IINTS'）"
+    done
+    ICLK="$(fdtget -t s "$DTB" /iommu@fdab9000 clock-names 2>/dev/null | tr '\n' ' ' || true)"
+    for s in aclk0 aclk1 aclk2 iface0 iface1 iface2; do
+        [[ "$ICLK" == *"$s"* ]] || fail "/iommu@fdab9000 clock-names 缺 $s（实际 '$ICLK'）"
+    done
+    ICOMP="$(fdtget -t s "$DTB" /iommu@fdab9000 compatible 2>/dev/null || true)"
+    [[ "$ICOMP" == *rockchip,iommu-v2* ]] \
+        || fail "/iommu@fdab9000 compatible 应含 rockchip,iommu-v2（官方 T6 形态），实际 '$ICOMP'"
+    ok "NPU = rockchip,rk3588-rknpu（三核合一，npu0_irq 就位；iommu@fdab9000 已合并三核 MMU 四 bank + 3 中断 + 6 时钟；附属 IOMMU 按 T6 关闭）"
 
     for pair in "/rga@fdb60000:rockchip,rga3_core0" "/rga@fdb70000:rockchip,rga3_core1" "/rga@fdb80000:rockchip,rga2_core0"; do
         n="${pair%%:*}"; want="${pair#*:}"

@@ -118,21 +118,49 @@
 	status = "okay";
 };
 
-&rknn_mmu_0 { status = "okay"; };
+/* 三核 MMU 合并进一个 IOMMU 节点 —— 官方 T6 的真实做法（本仓此前抄错，见下）。
+ *
+ * 官方 rk3588-nanopc-t6.dtb 的 iommu@fdab9000：
+ *   reg        = fdab9000 / fdaba000（core0 两颗）+ fdaca000（core1）+ fdada000（core2）
+ *   interrupts = npu0_mmu / npu1_mmu / npu2_mmu 三条
+ *   clocks     = aclk0/aclk1/aclk2 + iface0/iface1/iface2 六路
+ *   compatible 含 "rockchip,iommu-v2"
+ * mainline rockchip-iommu 对单节点多 reg 会按 bank 数编程同一份页表（num_mmu = #reg），
+ * 于是三核共用 core0 的 DMA domain —— **这才是 core1/core2 自己的 iommu 节点在官方
+ * T6 里是 disabled 的原因：它们的 MMU 已被合并进来，不是"官方只启用一核"。**
+ *
+ * 2026-10-28 实机验证（H88K，本节点按官方 T6 补齐后）：
+ *   core0 only 10/10 7.32 inf/s | core1 only 10/10 6.61 inf/s（load Core1 45%）
+ *   core2 only 10/10 5.69 inf/s（load Core2 74%）| 三核 9.41 inf/s（+63%）
+ *   全程 job timeout 0、soft reset 0、无 synchronous external abort。
+ * 补齐前（reg 只有 2 bank）：驱动按 efuse 认定三核可用（mask 0x7），core1/core2 的
+ * MMU 无人管理 → 完成中断永不触发 → 142s job timeout + soft reset 死循环。
+ */
+&rknn_mmu_0 {
+	compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu", "rockchip,iommu-v2";
+	reg = <0x0 0xfdab9000 0x0 0x100>,
+	      <0x0 0xfdaba000 0x0 0x100>,
+	      <0x0 0xfdaca000 0x0 0x100>,
+	      <0x0 0xfdada000 0x0 0x100>;
+	interrupts = <GIC_SPI 110 IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI 111 IRQ_TYPE_LEVEL_HIGH>,
+		     <GIC_SPI 112 IRQ_TYPE_LEVEL_HIGH>;
+	interrupt-names = "npu0_mmu", "npu1_mmu", "npu2_mmu";
+	clocks = <&cru ACLK_NPU0>, <&cru ACLK_NPU1>, <&cru ACLK_NPU2>,
+		 <&cru HCLK_NPU0>, <&cru HCLK_NPU1>, <&cru HCLK_NPU2>;
+	clock-names = "aclk0", "aclk1", "aclk2", "iface0", "iface1", "iface2";
+	power-domains = <&power RK3588_PD_NPUTOP>;
+	status = "okay";
+};
 /* 独立的两颗核节点不再单独启用（BSP 驱动把三核当一个设备） */
 &{/npu@fdac0000} { status = "disabled"; };
 &{/npu@fdad0000} { status = "disabled"; };
-/* core1/core2 的两颗附属 IOMMU 必须关闭 —— 对齐真·官方 T6（其 iommu@fdaca000 /
- * iommu@fdada000 均 disabled，只有 core0 的 iommu@fdab9000 okay）。
- * 教训（2026-10-27 实机事故）：这两块曾被默认带成 okay → rk_iommu 抢先绑定
- * （实测 fdaca000.iommu -> /sys/bus/platform/drivers/rk_iommu），而它们的中断
- * （GIC SPI 111/112）与 rknpu 的 npu1_irq/npu2_irq 是【同一条共享中断线】。
- * 后果：任务派到 core1/core2 后硬件永不回完成中断 →
- *   RKNPU: job timeout, core 1 irq status: 0x0, task counter: 0x0 → soft reset
- * 死循环（实测复位 311 次、269+44 个 job 全灭），相册 AI trim.txt2vec 卡在
- * rknpu_submit_ioctl 的 D 状态数小时零进度；core0 中断 10199 而 core1/2 恒 0。
- * rknpu 驱动自身只用 core0 那一颗 MMU（npu 节点 iommus = <&rknn_mmu_0>），
- * 这两块对本驱动纯属多余 —— 官方 T6 关掉它们是有道理的，别再顺手打开。 */
+/* core1/core2 的两颗**独立** IOMMU 节点保持 disabled —— 它们的 MMU bank 已合并进
+ * rknn_mmu_0 的 reg（见上）。若再单独启用，rk_iommu 会抢先绑定它们，而其中断
+ * （GIC SPI 111/112）与 rknpu 的 npu1_irq/npu2_irq 是同一条共享中断线，
+ * 会重现 2026-10-27 的 job timeout 死循环（实测复位 311 次、core0 中断 10199 而
+ * core1/2 恒 0）。**注意区分**：要关的是这两个"独立 iommu 节点"，
+ * 不是让 core1/core2 没有 MMU。 */
 &{/iommu@fdaca000} { status = "disabled"; };
 &{/iommu@fdada000} { status = "disabled"; };
 

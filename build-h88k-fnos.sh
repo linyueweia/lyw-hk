@@ -189,14 +189,21 @@ if [[ -L "$ROOT_MNT/etc/systemd/system/pwm-fancontrol.service" ]]; then
 fi
 ok "pwm-fancontrol 未被 mask（风扇可正常控速）"
 
-# 3.6b) NPU 只用 core0 的钉死件（2026-10-28 H88K 实机彻查）
-#   官方 T6 DTB（与本板逐项一致）只启用 core0：npu@fdac0000/fdad0000 + iommu@fdaca000/fdada000
-#   全 disabled，但 rknnlite 上游默认 core_mask = NPU_CORE_AUTO（源码注释："run on NPU core randomly"）
-#   → 驱动随机挑到 core1/core2（节点 disabled、完成中断永不触发）→ 每次等满 142s
-#   → RKNPU job timeout + soft reset 死循环，trim.txt2vec/img2vec 卡在 rknpu_submit_ioctl。
-#   实测：CORE_0 only 10/10 成功 5.6s 零超时；AUTO 必现 failed to submit + timeout。
-#   该库文件在 /vol1/@appcenter（首启才下载的应用里），构建期改不到 → 用首启 oneshot 修；
-#   **DTB 一个字节不动**（完全跟随官方 T6 的意图）。
+# 3.6b) NPU 三核全开的钉死件（2026-10-28 H88K 实机彻查 + 实机验证）
+#   真正的根因不在 runtime，而在 DTB：官方 rk3588-nanopc-t6.dtb 的 iommu@fdab9000
+#   把三核的 MMU bank 全合并进一个节点（reg 四段 fdab9000/fdaba000/fdaca000/fdada000、
+#   三条中断 npu0/1/2_mmu、六路时钟 aclk0-2+iface0-2、compatible 含 rockchip,iommu-v2），
+#   core1/core2 自己的 iommu 节点才 disabled（MMU 已被合并，不是"官方只开一核"）。
+#   本仓 dts/fnos-accel.dtsi 之前只留 core0 的两个 bank → 驱动按 efuse 仍认定三核可用
+#   （mask 0x7），core1/core2 的 MMU 无人管理 → 完成中断永不触发 → 142s job timeout
+#   + soft reset 死循环。dts 已按官方 T6 补齐（见 fnos-accel.dtsi 的 &rknn_mmu_0）。
+#   实机验证（补齐后）：core0-only 7.32 / core1-only 6.61 / core2-only 5.69 /
+#   三核 9.41 inf/s（+63%），全程 timeout 0、soft reset 0、无 external abort。
+#
+#   本段做的事：ai-runtime 装在 /vol1/@appcenter（首启才下载），构建期改不到库文件，
+#   所以用首启 oneshot 把 rknnlite 的 init_runtime 默认 core_mask 从上游的
+#   NPU_CORE_AUTO（官方注释 "run on NPU core randomly"，实际只随机挑一个核）
+#   改为 NPU_CORE_ALL（官方定义 "run on all NPU cores"）—— 三核并行。
 install -Dm755 "$SELF_DIR/assets/h88k/h88k-fix-rknn-core.sh" \
     "$ROOT_MNT/usr/local/sbin/h88k-fix-rknn-core.sh" || fail "装 h88k-fix-rknn-core.sh 失败"
 install -Dm644 "$SELF_DIR/assets/h88k/h88k-fix-rknn-core.service" \

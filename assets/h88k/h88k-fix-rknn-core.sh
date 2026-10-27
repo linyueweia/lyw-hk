@@ -30,8 +30,14 @@ for PY in "$APPDIRS"/trim.ai-runtime-rk35*/penv/lib/python*/site-packages/rknnli
     [ -f "$PY" ] || continue
     if grep -q 'core_mask=NPU_CORE_AUTO):' "$PY"; then
         cp -a "$PY" "${PY}.bak-$(date +%Y%m%d-%H%M%S)" 2>/dev/null
-        sed -i 's/async_mode=False, core_mask=NPU_CORE_AUTO):/async_mode=False, core_mask=NPU_CORE_0):/' "$PY"
-        logger -t h88k-fix-rknn-core "patched default core_mask -> NPU_CORE_0: $PY"
+        sed -i 's/async_mode=False, core_mask=NPU_CORE_AUTO):/async_mode=False, core_mask=NPU_CORE_ALL):/' "$PY"
+        logger -t h88k-fix-rknn-core "patched default core_mask -> NPU_CORE_ALL: $PY"
+        changed=1
+    elif grep -q 'core_mask=NPU_CORE_0):' "$PY"; then
+        # 早期版本钉的是 CORE_0（那时 iommu 还没合并三核 bank，只能单核）
+        cp -a "$PY" "${PY}.bak-$(date +%Y%m%d-%H%M%S)" 2>/dev/null
+        sed -i 's/async_mode=False, core_mask=NPU_CORE_0):/async_mode=False, core_mask=NPU_CORE_ALL):/' "$PY"
+        logger -t h88k-fix-rknn-core "upgraded default core_mask CORE_0 -> NPU_CORE_ALL: $PY"
         changed=1
     fi
 done
