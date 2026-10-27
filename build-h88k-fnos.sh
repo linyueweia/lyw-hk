@@ -114,22 +114,20 @@ grep -q "^kernelfile=$KERNEL$"            "$BOOT_MNT/fnEnv.txt" || fail "fnEnv k
 if grep -q '^initrdfile=' "$BOOT_MNT/fnEnv.txt"; then fail "fnEnv 不应有 initrdfile（官方无 initrd）"; fi
 sed 's/^/     /' "$BOOT_MNT/fnEnv.txt"
 
-# 3.4 board.json —— fnOS 认板 + LED（sysfs 名与本板 DTB 标签一致）
+# 3.4 board.json —— 单一来源：assets/h88k/board.json（model / led / fan）
+#     历史事故：本节曾内联写死一份只有 model/led 的副本，与 assets 那份并存，
+#     CI 落地的是缺 fan 的那份 → fnOS 的 pwm-fancontrol.service 每开机报
+#     "Error: No fan configuration found in /boot/board.json" 并 failed。
+#     现在只拷 assets 那份；判据由 tools/board-json-check.py 单点定义（镜像自证同一份）。
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BOARD_SRC="$SELF_DIR/assets/h88k/board.json"
+BOARD_CHECK="$SELF_DIR/tools/board-json-check.py"
 if [[ -f "$BOOT_MNT/board.json" ]]; then
-    cat > "$BOOT_MNT/board.json" <<'EOF'
-{
-  "model": {
-    "id": "hlink,h88k",
-    "name": "HINLINK H88K V3"
-  },
-  "led": [
-    { "name": "POWER-LED", "sysfs": "blue:net",   "trigger": "default-on" },
-    { "name": "DISK-LED",  "sysfs": "amber:sata", "trigger": "disk-activity" }
-  ]
-}
-EOF
-    python3 -c "import json,sys; json.load(open('$BOOT_MNT/board.json'))" || fail "board.json 非法 JSON"
-    ok "board.json → hlink,h88k + LED(blue:net / amber:sata)"
+    [[ -f "$BOARD_SRC"   ]] || fail "缺 $BOARD_SRC（board.json 单一来源）"
+    [[ -f "$BOARD_CHECK" ]] || fail "缺 $BOARD_CHECK（board.json 判据）"
+    cp -f "$BOARD_SRC" "$BOOT_MNT/board.json" || fail "board.json 拷贝失败"
+    python3 "$BOARD_CHECK" "$BOOT_MNT/board.json" || fail "board.json 判据未通过"
+    ok "board.json ← assets/h88k/board.json（model + LED×2 + fan 段齐全）"
 else
     echo "  ⚠ p1 无 board.json（跳过，不判失败）"
 fi

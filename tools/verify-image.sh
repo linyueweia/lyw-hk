@@ -194,8 +194,11 @@ echo "── 11) rootfs 完整性 ──"
 [[ -d "$TMP/root/usr" && -d "$TMP/root/etc" ]] && ok "rootfs 有 /usr /etc" || fail "rootfs 结构异常"
 BJ="$TMP/boot/board.json"
 if [[ -f "$BJ" ]]; then
-    grep -q 'hlink,h88k' "$BJ" && ok "board.json = hlink,h88k" || fail "board.json 未指向 hlink,h88k"
-    grep -q 'blue:net' "$BJ" && ok "board.json 含 LED 映射 blue:net" || echo "  ⚠ board.json 无 LED 映射（不致命）"
+    # 判据单一真源：与构建期装配用的是同一个脚本（含 fan 段断言）
+    SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    python3 "$SELF_DIR/tools/board-json-check.py" "$BJ" || fail "board.json 判据未通过（缺 fan/led/model 会打到 pwm-fancontrol 与面板）"
+else
+    fail "镜像 p1 缺 board.json（fnOS 认板/风扇/LED 全靠它）"
 fi
 
 echo

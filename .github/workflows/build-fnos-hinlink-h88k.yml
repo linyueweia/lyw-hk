@@ -36,6 +36,9 @@ on:
       - "dts/**"
       - "dist/**"
       - "refs/**"
+      # assets/** 是镜像内实际落地的板级件（board.json / fnEnv 模板 / MAC 修复件 …），
+      # 漏了它就会出现「改了注入件却永远不重出镜像」（10-27 board.json 丢 fan 段就是这么放过的）
+      - "assets/**"
       - "*.sh"
       - "tools/**"
       - ".github/workflows/**"
@@ -122,6 +125,12 @@ jobs:
           fi
           mv "base/$RAW_NAME" base/fnnas-base.img
           sudo parted -s base/fnnas-base.img unit s print || true
+      - name: board.json 判据自测（正例 + 6 负例，秒级）
+        run: |
+          set -e
+          chmod +x tools/tests/board-json-check-test.sh
+          bash tools/tests/board-json-check-test.sh
+
       - name: Assemble fnOS image
         run: |
           set -e

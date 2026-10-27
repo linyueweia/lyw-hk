@@ -1,7 +1,12 @@
 
 # 构建产物与临时件
 out/
+base/
 dist/
 *.img
 *.img.xz
 kernel/
+
+# python 编译缓存（本机 py_compile / 跑判据脚本会产生）
+__pycache__/
+*.pyc
