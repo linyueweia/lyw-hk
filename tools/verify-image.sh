@@ -71,7 +71,15 @@ dtc -I dtb -O dts -o "$TMP/in.dts" "$F" 2>/dev/null || true
 N_IOMMU="$( { grep -o 'rockchip,rk3588-iommu' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 N_V2="$( { grep -o 'rockchip,iommu-v2' "$TMP/in.dts" || true; } | wc -l | tr -d ' ')"
 [[ "${N_IOMMU:-0}" -ge 10 ]] && ok "iommu = rockchip,rk3588-iommu ×$N_IOMMU" || fail "iommu 不是官方内核认的命名（仅 ${N_IOMMU:-0}）"
-[[ "${N_V2:-0}" -eq 0 ]] && ok "无 rockchip,iommu-v2 残留" || fail "仍有 rockchip,iommu-v2 ×${N_V2}"
+# 官方 T6 的 iommu@fdab9000 带 rockchip,iommu-v2（BSP 兼容串，mainline 忽略、无害）。
+# 只允许出现在该节点；出现在别处才是自己加的（2026-10-28 改判，与 verify-h88k-dts.sh 同口径）
+N_V2_MMU0="$(fdtget -t s "$F" /iommu@fdab9000 compatible 2>/dev/null | grep -c 'rockchip,iommu-v2' || true)"
+[[ "${N_V2:-0}" -le "${N_V2_MMU0:-0}" ]] \
+    && ok "iommu-v2 ${N_V2:-0} 处（限 iommu@fdab9000，官方 T6 形态）" \
+    || fail "rockchip,iommu-v2 出现在 iommu@fdab9000 之外（全 DTB ${N_V2:-0} 处 / 该节点 ${N_V2_MMU0:-0} 处）"
+# NPU 三核 MMU 必须合并进 iommu@fdab9000（否则 core1/core2 无 MMU → job timeout 死循环）
+IREG_W="$(fdtget -t x "$F" /iommu@fdab9000 reg 2>/dev/null | wc -w || echo 0)"
+[[ "$IREG_W" -ge 16 ]] && ok "iommu@fdab9000 合并四 bank（$IREG_W words）" || fail "iommu@fdab9000 reg 仅 $IREG_W words（应 ≥16，四 bank）"
 LBL="$(fdtget -t s "$F" /ethernet@fe1b0000 label 2>/dev/null || true)"
 [[ -z "$LBL" ]] && ok "gmac 无 label（否则 stmmac 撞名 -17，千兆口消失）" || fail "gmac 带 label='$LBL'"
 [[ "$(fdtget -t s "$F" /ethernet@fe1b0000 phy-mode)" == "rgmii-rxid" ]] && ok "gmac phy-mode=rgmii-rxid" || fail "gmac phy-mode 不符"
