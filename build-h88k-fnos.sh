@@ -138,7 +138,59 @@ rm -f  "$BOOT_MNT/uInitrd"* 2>/dev/null || true
 [[ -f "$BOOT_MNT/boot.scr" ]] || fail "p1 缺 boot.scr（官方引导链断）"
 ok "引导链 = boot.scr → fnEnv（无 extlinux / 无 uInitrd）"
 
+echo
+echo "==== 3.6) OS 层修复：mask 本板没有对应硬件的服务（含 SysV 形态）===="
+# 判据与 lyw-kf 同款（2026-10-27 落地），但列表按 H88K 实机裁定（.37 取证）：
+#   exim4        只有 /etc/init.d/exim4（SysV，无 unit 文件）→ 旧式只查 *.service 的写法从不命中，
+#                开机时 systemd-sysv-generator 才生成 exim4.service，启动即 failed
+#                （日志：either install a certificate or change tls_advertise_hosts option）
+#   nut-server   /usr/lib/systemd/system/nut-server.service + /etc/init.d/nut-server，本板无 UPS → failed
+#   nut-monitor  同族，无 UPS → 一并关掉（否则迟早也 failed）
+# ⚠ 故意【不动】的三者（动了就是真故障）：
+#   pwm-fancontrol  H88K 风扇就靠它，board.json 的 fan 段是它的配置源，实机 active
+#   smartmontools   本板有 NVMe，SMART 可读，属正常使用而非残留
+#   networking      fnOS 仍有依赖，mask 有断网风险
+ROOT_PART="${LOOP}p2"
+[[ -e "$ROOT_PART" ]] || fail "镜像没有 p2 (rootfs)"
+ROOT_MNT="$(mktemp -d)"
+mount "$ROOT_PART" "$ROOT_MNT" || fail "挂载 rootfs 失败"
+ok "p2 = $(lsblk -no FSTYPE "$ROOT_PART")"
+
+H88K_MASK="nut-monitor nut-server exim4"
+for u in $H88K_MASK; do
+    hit=0
+    for d in "$ROOT_MNT/etc/systemd/system" "$ROOT_MNT/usr/lib/systemd/system" "$ROOT_MNT/lib/systemd/system"; do
+        [[ -f "$d/$u.service" && ! -L "$d/$u.service" ]] && hit=1
+    done
+    [[ -f "$ROOT_MNT/etc/init.d/$u" ]] && hit=1      # SysV 也算命中
+    if [[ "$hit" = 1 ]]; then
+        ln -sf /dev/null "$ROOT_MNT/etc/systemd/system/$u.service"
+        ok "mask $u.service"
+    else
+        echo "  · $u 不在镜像里（跳过）"
+    fi
+done
+
+# 自证①：存在就必须真 masked（unit 或 SysV 任一形态）
+for u in $H88K_MASK; do
+    if [[ -e "$ROOT_MNT/etc/systemd/system/$u.service" || -e "$ROOT_MNT/usr/lib/systemd/system/$u.service" \
+          || -e "$ROOT_MNT/lib/systemd/system/$u.service" || -f "$ROOT_MNT/etc/init.d/$u" ]]; then
+        if [[ -L "$ROOT_MNT/etc/systemd/system/$u.service" ]] \
+           && [[ "$(readlink "$ROOT_MNT/etc/systemd/system/$u.service")" == "/dev/null" ]]; then
+            ok "自证 $u 已指向 /dev/null"
+        else
+            fail "$u 存在于镜像但未真正 masked（systemd unit 或 /etc/init.d 脚本）"
+        fi
+    fi
+done
+# 自证②：风扇服务绝不能被 mask（这条是防「顺手把 pwm-fancontrol 也关掉」的回归）
+if [[ -L "$ROOT_MNT/etc/systemd/system/pwm-fancontrol.service" ]]; then
+    fail "pwm-fancontrol 被 mask 了 —— H88K 风扇会彻底失效"
+fi
+ok "pwm-fancontrol 未被 mask（风扇可正常控速）"
+
 sync
+umount "$ROOT_MNT"; rmdir "$ROOT_MNT"
 umount "$BOOT_MNT"; losetup -d "$LOOP"; rmdir "$BOOT_MNT"; LOOP=""; trap - EXIT
 
 echo

@@ -202,6 +202,28 @@ else
 fi
 
 echo
+echo "── 12) OS 层：无硬件的服务必须已 mask（含 SysV 形态）──"
+# 判据取「镜像里存在」（systemd unit 或 /etc/init.d 脚本），只查 *_service 文件会漏掉纯 SysV 件
+for u in nut-monitor nut-server exim4; do
+    if [[ -e "$TMP/root/etc/systemd/system/$u.service" || -e "$TMP/root/usr/lib/systemd/system/$u.service" \
+          || -e "$TMP/root/lib/systemd/system/$u.service" || -f "$TMP/root/etc/init.d/$u" ]]; then
+        if [[ -L "$TMP/root/etc/systemd/system/$u.service" ]] \
+           && [[ "$(readlink "$TMP/root/etc/systemd/system/$u.service")" == "/dev/null" ]]; then
+            ok "$u 已 mask（-> /dev/null）"
+        else
+            fail "$u 存在于镜像但未 mask（每开机 systemctl --failed 必然多一条）"
+        fi
+    else
+        ok "$u 不在镜像里（无关）"
+    fi
+done
+if [[ -L "$TMP/root/etc/systemd/system/pwm-fancontrol.service" ]]; then
+    fail "pwm-fancontrol 被 mask —— H88K 风扇会失效"
+else
+    ok "pwm-fancontrol 未被 mask（风扇可正常控速）"
+fi
+
+echo
 if [[ "$FAILED" -ne 0 ]]; then
     echo "== 镜像自证失败 ==" >&2
     exit 1
