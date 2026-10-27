@@ -144,33 +144,8 @@ sync
 umount "$BOOT_MNT"; losetup -d "$LOOP"; rmdir "$BOOT_MNT"; LOOP=""; trap - EXIT
 
 echo
-echo "==== 4) GPT 自洽（备份表落在镜像末尾）===="
-python3 - "$IMG" <<'PY'
-import struct, zlib, sys, os
-img = sys.argv[1]
-last = os.path.getsize(img) // 512 - 1
-with open(img, 'r+b') as f:
-    f.seek(512); prim = bytearray(f.read(512))
-    assert prim[:8] == b'EFI PART', "主 GPT 头缺失"
-    pe, ne, esz = struct.unpack_from('<QII', prim, 72)
-    f.seek(pe * 512); entries = f.read(ne * esz)
-    hsz = struct.unpack_from('<I', prim, 12)[0]
-    def hcrc(h):
-        h2 = bytearray(h); h2[16:20] = b'\0\0\0\0'
-        return zlib.crc32(bytes(h2[:hsz])) & 0xffffffff
-    if struct.unpack_from('<Q', prim, 32)[0] != last:
-        struct.pack_into('<Q', prim, 32, last)
-        struct.pack_into('<I', prim, 16, hcrc(prim))
-        f.seek(512); f.write(prim)
-    bak_lba = last - (ne * esz) // 512
-    bak = bytearray(prim)
-    struct.pack_into('<Q', bak, 24, last)
-    struct.pack_into('<Q', bak, 32, 1)
-    struct.pack_into('<Q', bak, 72, bak_lba)
-    struct.pack_into('<I', bak, 16, hcrc(bak))
-    f.seek(bak_lba * 512); f.write(entries + bytes(bak))
-print(f"  ✓ 主表 alternate_lba={last}，备份表@LBA{bak_lba}")
-PY
+echo "==== 4) GPT 自洽（R5S 官方口径：备份表落镜像末尾 + 全字段 CRC 校验）===="
+python3 tools/gpt-fix.py "$IMG" --apply || { echo "❌ GPT 修复/复检失败"; exit 1; }
 
 echo
 echo "==== 5) 打包 ===="
