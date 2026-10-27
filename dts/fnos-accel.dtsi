@@ -155,7 +155,40 @@
 &vepu121_1_mmu { status = "okay"; };
 &vepu121_2_mmu { status = "okay"; };
 &vepu121_3_mmu { status = "okay"; };
-&av1d_mmu { status = "okay"; };
+/* AV1 的 IOMMU：飞牛内核内建 rockchip-iommu-av1d.c，of_match 只认 rockchip,iommu-av1d
+ * （真 T6 也是这个串）；主线基线给的是 rk3588-av1-iommu/verisilicon,iommu-1.2，
+ * 两个都不匹配 → rk_iommu 不绑 → mpp_av1dec 报 failed to attach iommu。
+ * 追加 iommu-av1d 串（保留原串，不删）使其能被 rk_iommu 认领。 */
+&av1d_mmu {
+	status = "okay";
+	compatible = "rockchip,rk3588-av1-iommu", "verisilicon,iommu-1.2", "rockchip,iommu-av1d";
+};
+
+/* AV1 解码核按真 T6 重写（rk_vcodec.ko 的 of_match 只认 rockchip,av1-decoder；
+ * 主线基线用 rk3588-av1-vpu + aclk/hclk 命名且缺 rockchip,srv/taskqueue-node
+ * → 驱动 0 绑定。T6 用 av1-decoder + MPP 时钟名 + srv/taskqueue-node 进 mpp-srv。
+ * taskqueue-node=11 = mpp-srv(taskqueue-count=12) 的最后一个空位，不与现有核撞号。） */
+&av1d {
+	compatible = "rockchip,av1-decoder";
+	/* 3 段 reg 按真 T6：vcd + cache + afbc（主线基线只有 vcd 一段，
+	 * 驱动会读 cache/afbc 寄存器 → 缺段会 probe 异常） */
+	reg = <0x0 0xfdc70000 0x0 0x800 0x0 0xfdc80000 0x0 0x400 0x0 0xfdc90000 0x0 0x400>;
+	reg-names = "vcd", "cache", "afbc";
+	interrupts = <GIC_SPI 108 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH 0>,
+		     <GIC_SPI 106 IRQ_TYPE_LEVEL_HIGH 0>;
+	interrupt-names = "irq_av1d", "irq_cache", "irq_afbc";
+	clocks = <&cru ACLK_AV1>, <&cru PCLK_AV1>;
+	clock-names = "aclk_vcodec", "hclk_vcodec";
+	assigned-clocks = <&cru ACLK_AV1>, <&cru PCLK_AV1>;
+	assigned-clock-rates = <200000000>, <200000000>;
+	rockchip,normal-rates = <200000000 200000000>;
+	resets = <&cru SRST_A_AV1>, <&cru SRST_P_AV1>;
+	reset-names = "video_a", "video_h";
+	rockchip,srv = <&mpp_srv>;
+	rockchip,taskqueue-node = <11>;
+	status = "okay";
+};
 
 /* ---------------- RGA：BSP rga3 ----------------
  * 真 T6：fdb60000 = rga3_core0、fdb70000 = rga3_core1、fdb80000 = rga2_core0，

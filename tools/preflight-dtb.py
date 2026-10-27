@@ -154,6 +154,24 @@ def build(d):
     chk("rkvdec0 有 rockchip,srv", lambda: d.exists_prop('/video-codec@fdc38000', 'rockchip,srv'))
     chk("rkvdec0 有 rockchip,taskqueue-node", lambda: d.exists_prop('/video-codec@fdc38000', 'rockchip,taskqueue-node'))
 
+    # ── AV1 解码核（对齐官方 T6；2026-10-27 修复：主线命名绑不上飞牛 rk_vcodec/av1-iommu）──
+    # 真 T6：av1d@fdc70000 = rockchip,av1-decoder + srv/taskqueue-node + 3 段 reg(vcd/cache/afbc)
+    #        其 iommu = rockchip,iommu-av1d（飞牛内核内建 rockchip-iommu-av1d.c 唯一认的串）
+    # 主线基线给的是 rk3588-av1-vpu + aclk/hclk + 无 srv → rk_vcodec 0 绑定；iommu 给 verisilicon,iommu-1.2 → rk_iommu 0 绑定
+    chk("av1d compatible=av1-decoder（飞牛 rk_vcodec 唯一认的 av1 串，主线 rk3588-av1-vpu 不认）",
+        lambda: 'rockchip,av1-decoder' in (d.s('/video-codec@fdc70000', 'compatible') or ''),
+        lambda: d.s('/video-codec@fdc70000', 'compatible'))
+    chk("av1d 有 rockchip,srv", lambda: d.exists_prop('/video-codec@fdc70000', 'rockchip,srv'))
+    chk("av1d 有 rockchip,taskqueue-node", lambda: d.exists_prop('/video-codec@fdc70000', 'rockchip,taskqueue-node'))
+    chk("av1d 3 段 reg（vcd/cache/afbc，缺 cache/afbc 会 probe 异常）",
+        lambda: (d.s('/video-codec@fdc70000', 'reg-names') or '').count('\x00') == 2,
+        lambda: d.s('/video-codec@fdc70000', 'reg-names'))
+    chk("av1d iommu 含 rockchip,iommu-av1d（飞牛内建 av1-iommu 驱动唯一认的串）",
+        lambda: 'rockchip,iommu-av1d' in (d.s('/iommu@fdca0000', 'compatible') or ''),
+        lambda: d.s('/iommu@fdca0000', 'compatible'))
+    chk("av1d iommu okay", lambda: d.s('/iommu@fdca0000', 'status') == 'okay',
+        lambda: d.s('/iommu@fdca0000', 'status') or '(缺)')
+
     # ── iommu 命名 ──
     txt = d.raw
     chk("rk3588-iommu 出现 ≥10 次", lambda: txt.count(b'rockchip,rk3588-iommu') >= 10,
