@@ -189,6 +189,21 @@ for DTB in "${DTBS[@]}"; do
     fdtget "$DTB" /video-codec@fdc38000 rockchip,taskqueue-node >/dev/null 2>&1 || fail "rkvdec0 缺 rockchip,taskqueue-node"
     ok "VPU 解码核 = rockchip,rkv-decoder-v2（rockchip,srv + taskqueue-node 齐）"
 
+    # 解码链必须与官方 T6 同形：双核 + CCU + 两个 iommu（2026-10-28 定案）
+    #   背景：只写核心 0 却带 core-mask=0x10001（link mode 双核）→ 进链接模式而伙伴核/CCU 不在，
+    #   实测 iPhone HEVC 长片硬解丢帧（1249/1408，18 个失败周期）→ 相册播放花屏。
+    fdtget "$DTB" /video-codec@fdc38000 rockchip,ccu >/dev/null 2>&1 || fail "rkvdec0 缺 rockchip,ccu（官方 T6 双核+CCU 形态）"
+    fdtget "$DTB" /iommu@fdc38700 rockchip,disable-mmu-reset >/dev/null 2>&1 || fail "/iommu@fdc38700 缺 rockchip,disable-mmu-reset（官方 T6 有；缺它 → stall 超时 → soft mmu reset fail → 丢帧花屏）"
+    [[ "$(fdtget -t s "$DTB" /rkvdec-ccu@fdc30000 status 2>/dev/null)" == "okay" ]] || fail "缺 /rkvdec-ccu@fdc30000 或非 okay（官方 T6 的 rkv-decoder-v2-ccu）"
+    for n in /rkvdec-core@fdc48000 /iommu@fdc48700; do
+        [[ "$(fdtget -t s "$DTB" "$n" status 2>/dev/null)" == "okay" ]] || fail "$n 应为 okay（官方 T6 的解码核心 1 与它的 MMU）"
+    done
+    [[ "$(fdtget -t x "$DTB" /rkvdec-core@fdc48000 rockchip,core-mask 2>/dev/null | tr -d ' ')" == "20002" ]] \
+        || fail "/rkvdec-core@fdc48000 的 rockchip,core-mask 应为 0x20002（官方 T6 口径）"
+    [[ "$(fdtget -t s "$DTB" /video-codec@fdc40000 status 2>/dev/null)" == "disabled" ]] \
+        || fail "/video-codec@fdc40000（legacy rk3588-vdec）应 disabled —— 官方 T6 无此节点，留着是死节点"
+    ok "解码链 = 官方 T6 形态（core0+core1+CCU+fdc38700/fdc48700，legacy vdec 关闭）"
+
     # 编解码核（物理块命名沿用内核树，MPP 经 mpp-srv 汇总）
     # 编解码核：MPP 新 BSP 命名（2026-10-27 实机编解码全通；老 rk3588-vpu121/vepu121 不被驱动识别）
     N_VENC2="$( { grep -o 'rockchip,vpu-encoder-v2' "$TMP" || true; } | wc -l | tr -d ' ')"
