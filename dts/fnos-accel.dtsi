@@ -360,7 +360,11 @@
 	};
 
 	rkvdec_mmu1: iommu@fdc48700 {
-		compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu", "rockchip,iommu-v2";
+		/* 官方 T6 这里还带第三串 rockchip,iommu-v2；本内核内建 rk_iommu 的 of_match
+		 * 只有 rockchip,rk3588-iommu / rockchip,rk3568-iommu（strings vmlinuz 实测
+		 * iommu-v2 = 0 次），且门禁规定 iommu-v2 只允许出现在官方 NPU 的
+		 * iommu@fdab9000，故此处与树内其它 iommu 节点保持同两串。 */
+		compatible = "rockchip,rk3588-iommu", "rockchip,rk3568-iommu";
 		reg = <0x0 0xfdc48700 0x0 0x40>, <0x0 0xfdc48740 0x0 0x40>;
 		interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH 0>;
 		interrupt-names = "irq_rkvdec1_mmu";
