@@ -112,6 +112,13 @@
 			<&power RK3588_PD_NPU2>;
 	power-domain-names = "npu0", "npu1", "npu2";
 	iommus = <&rknn_mmu_0>;
+	/* 官方 T6 的 npu@fdab0000 只有两个 supply：rknpu-supply + mem-supply（都指 vdd_npu_s0）。
+	 * 内核基线 dtsi 还带 npu-supply / sram-supply，同一个 regulator 被当成第 3、4 个 OPP
+	 * supply 重复注册 —— 开机就是
+	 *   debugfs: 'fdab0000.npu-rknpu' already exists in 'vdd_npu_s0'
+	 * 按官方删掉，与 refs/t6-official.dtb 逐属性一致。 */
+	/delete-property/ npu-supply;
+	/delete-property/ sram-supply;
 	rknpu-supply = <&vdd_npu_s0>;
 	mem-supply = <&vdd_npu_s0>;
 	operating-points-v2 = <&npu_opp_table>;
